@@ -172,6 +172,9 @@ final class Prefs {
 
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
+    /** The drawer's performance card (frames per second, the app's memory, the TV's hardware). */
+    static boolean performance() { return sp().getBoolean("performance", true); }
+    static void setPerformance(boolean on) { put("performance", on); }
 
     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
     static boolean photos() { return sp().getBoolean("photos", true); }

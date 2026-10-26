@@ -1,0 +1,62 @@
+# Builds FreeMyTV.apk (Java 8 language level, like build.sh) and attaches it to the run as a download.
+# Run it from the Actions tab ("Run workflow") or push to main. Needs one repository secret:
+#   TMDB_KEY   your TMDB "API Read Access Token" (Settings → Secrets and variables → Actions)
+# Optional, so that every build is signed with the same key and installs over the last one without uninstalling:
+#   KEYSTORE_B64   your keystore, base64 (base64 -w0 freemytv.keystore)
+#   KEYSTORE_PASS  its password (alias and key password must be the same one)
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: FreeMyTV.apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Android SDK (build-tools 34, android-34)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$RUNNER_TEMP/sdk" \
+            "build-tools;34.0.0" "platforms;android-34" > /dev/null
+          echo "ANDROID_HOME=$RUNNER_TEMP/sdk" >> "$GITHUB_ENV"
+      - name: Translations
+        run: python3 tools/translate.py --check
+      - name: Settings (Aracaju, Brazil)
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: |
+          {
+            echo "tmdb_key=${TMDB_KEY}"
+            echo "tmdb_region=BR"
+            echo "latitude=-10.9472"
+            echo "longitude=-37.0731"
+            echo "city=Aracaju"
+            echo "language=pt"
+            echo "currency=BRL"
+          } > config.properties
+          if [ -z "${TMDB_KEY}" ]; then echo "::warning::TMDB_KEY secret is empty: the home screen will have no picks."; fi
+      - name: Build (build.sh compiles at Java 8 level)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          if [ -n "${KEYSTORE_B64}" ] && [ -n "${KEYSTORE_PASS}" ]; then
+            echo "${KEYSTORE_B64}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            export FREEMYTV_KEYSTORE="$RUNNER_TEMP/release.keystore" FREEMYTV_KEYSTORE_PASS="${KEYSTORE_PASS}"
+          fi
+          ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTV-apk
+          path: FreeMyTV.apk
+          if-no-files-found: error

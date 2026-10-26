@@ -706,9 +706,9 @@ public class SettingsActivity extends Activity {
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, my photos, sounds, watch from the screensaver, weather, city, forecast,
-         *  now playing, quotes, then one row per coin. */
+         *  now playing, quotes, performance, then one row per coin. */
         private static final int PHOTOS_ROW = 3, SAVER_ROW = 5, WEATHER_ROW = 6, CITY_ROW = 7, FORECAST_ROW = 8, PLAYING_ROW = 9,
-                QUOTES_ROW = 10, COIN_ROWS = 11;
+                QUOTES_ROW = 10, PERF_ROW = 11, COIN_ROWS = 12;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -729,6 +729,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Forecast"));
             l.add(Ui.tr("Now Playing widget"));
             l.add(Ui.tr("Quotes widget"));
+            l.add(Ui.tr("Performance widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -755,6 +756,7 @@ public class SettingsActivity extends Activity {
             v[FORECAST_ROW] = Prefs.forecast().equals("days") ? Ui.tr("Next days") : Ui.tr("Next hours");
             v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
+            v[PERF_ROW] = onOff(Prefs.performance());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -1033,6 +1035,7 @@ public class SettingsActivity extends Activity {
                     HomeMode.nowPlayingAccess(getContext());
                     break;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
+                case PERF_ROW: Prefs.setPerformance(!Prefs.performance()); break;
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));

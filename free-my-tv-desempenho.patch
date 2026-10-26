@@ -1,0 +1,1904 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+new file mode 100644
+index 0000000..c411df9
+--- /dev/null
++++ b/.github/workflows/build.yml
+@@ -0,0 +1,62 @@
++# Builds FreeMyTV.apk (Java 8 language level, like build.sh) and attaches it to the run as a download.
++# Run it from the Actions tab ("Run workflow") or push to main. Needs one repository secret:
++#   TMDB_KEY   your TMDB "API Read Access Token" (Settings → Secrets and variables → Actions)
++# Optional, so that every build is signed with the same key and installs over the last one without uninstalling:
++#   KEYSTORE_B64   your keystore, base64 (base64 -w0 freemytv.keystore)
++#   KEYSTORE_PASS  its password (alias and key password must be the same one)
++name: Build APK
++
++on:
++  workflow_dispatch:
++  push:
++    branches: [main]
++
++permissions:
++  contents: read
++
++jobs:
++  apk:
++    name: FreeMyTV.apk
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: "17"
++      - name: Android SDK (build-tools 34, android-34)
++        run: |
++          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$RUNNER_TEMP/sdk" \
++            "build-tools;34.0.0" "platforms;android-34" > /dev/null
++          echo "ANDROID_HOME=$RUNNER_TEMP/sdk" >> "$GITHUB_ENV"
++      - name: Translations
++        run: python3 tools/translate.py --check
++      - name: Settings (Aracaju, Brazil)
++        env:
++          TMDB_KEY: ${{ secrets.TMDB_KEY }}
++        run: |
++          {
++            echo "tmdb_key=${TMDB_KEY}"
++            echo "tmdb_region=BR"
++            echo "latitude=-10.9472"
++            echo "longitude=-37.0731"
++            echo "city=Aracaju"
++            echo "language=pt"
++            echo "currency=BRL"
++          } > config.properties
++          if [ -z "${TMDB_KEY}" ]; then echo "::warning::TMDB_KEY secret is empty: the home screen will have no picks."; fi
++      - name: Build (build.sh compiles at Java 8 level)
++        env:
++          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
++          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
++        run: |
++          if [ -n "${KEYSTORE_B64}" ] && [ -n "${KEYSTORE_PASS}" ]; then
++            echo "${KEYSTORE_B64}" | base64 -d > "$RUNNER_TEMP/release.keystore"
++            export FREEMYTV_KEYSTORE="$RUNNER_TEMP/release.keystore" FREEMYTV_KEYSTORE_PASS="${KEYSTORE_PASS}"
++          fi
++          ./build.sh
++      - uses: actions/upload-artifact@v4
++        with:
++          name: FreeMyTV-apk
++          path: FreeMyTV.apk
++          if-no-files-found: error
+diff --git a/app/assets/i18n/cs.json b/app/assets/i18n/cs.json
+index 5c3bac1..7b51e39 100644
+--- a/app/assets/i18n/cs.json
++++ b/app/assets/i18n/cs.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Všechny aplikace",
+  "All Apps button": "Tlačítko Všechny aplikace",
+  "Android didn't accept the new home screen": "Android nepřijal novou plochu",
++ "App memory": "Paměť aplikace",
+  "Automatic": "Automaticky",
+  "BRAVIA CORE button": "Tlačítko BRAVIA CORE",
+  "Back closes.": "Zpět zavře.",
+@@ -42,6 +43,7 @@
+  "Fog": "Mlha",
+  "For You": "Pro vás",
+  "Forecast": "Předpověď",
++ "Frames per second": "Snímků za sekundu",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV je zapnuté: nová plocha a spořič, vypnuté aplikace: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Plocha Free My TV třikrát po sobě spadla; vrácena původní.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Plocha Free My TV narazila na problém.\nNávrat k původní ploše televize…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Tlačítko Google Play",
+  "H:{max}": "Max. {max}",
+  "HDMI Inputs": "Vstupy HDMI",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Silný déšť",
+  "High {max}, low {min}.": "Nejvyšší {max}, nejnižší {min}.",
+  "Home Screen": "Plocha",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Na televizi: zaškrtněte „Vždy povolit“ a stiskněte OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "U tohoto modelu televize zabránila změna plochy jedné televizi v zapnutí. Free My TV tu zůstává aplikací: otevřete ji ze svých aplikací.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Zapnuto · tituly z aplikací TV: {n}, 3 nové každou hodinu.",
++ "On-screen items": "Prvky na obrazovce",
+  "Original": "Původní",
+  "Original mode, but I couldn't turn back on: {list}.": "Původní režim, ale nepodařilo se znovu zapnout: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Původní režim: tovární plocha, spořič a aplikace jsou zpět.",
+  "Partly Cloudy": "Polojasno",
+  "PatchWall button": "Tlačítko PatchWall",
++ "Performance": "Výkon",
++ "Performance widget": "Widget výkonu",
+  "Position": "Umístění",
+  "Press OK to watch on {app} · any other button to close": "Stiskněte OK a sledujte v {app} · jiným tlačítkem zavřete",
+  "Preview": "Zobrazit",
+@@ -239,6 +245,7 @@
+  "the screensaver": "spořič obrazovky",
+  "unexpected reply from ADB": "neočekávaná odpověď ADB",
+  "unit|Automatic": "Automaticky",
++ "{hz} is the screen's maximum": "{hz} je maximum obrazovky",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} z {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, karta {i} z {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} jader · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "před {n} h",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/da.json b/app/assets/i18n/da.json
+index 0e16668..6ff3751 100644
+--- a/app/assets/i18n/da.json
++++ b/app/assets/i18n/da.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Alle apps",
+  "All Apps button": "Alle apps-knap",
+  "Android didn't accept the new home screen": "Android accepterede ikke den nye startskærm",
++ "App memory": "Appens hukommelse",
+  "Automatic": "Automatisk",
+  "BRAVIA CORE button": "BRAVIA CORE-knap",
+  "Back closes.": "Tilbage lukker.",
+@@ -42,6 +43,7 @@
+  "Fog": "Tåge",
+  "For You": "Til dig",
+  "Forecast": "Vejrudsigt",
++ "Frames per second": "Billeder pr. sekund",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV er slået til: ny startskærm og pauseskærm, {n} apps slået fra.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV's startskærm gik ned 3 gange i træk; den oprindelige er tilbage.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV's startskærm fik et problem.\nSkifter tilbage til tv'ets oprindelige startskærm…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play-knap",
+  "H:{max}": "Maks. {max}",
+  "HDMI Inputs": "HDMI-indgange",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Kraftig regn",
+  "High {max}, low {min}.": "Højeste {max}, laveste {min}.",
+  "Home Screen": "Startskærm",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "På tv'et: sæt flueben i “Tillad altid”, og tryk på OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "På denne tv-model forhindrede et skift af startskærm et tv i at starte. Her forbliver Free My TV en app: åbn den fra dine apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Til · {n} titler fra tv'ets apps, 3 nye hver time.",
++ "On-screen items": "Elementer på skærmen",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Originaltilstand, men kunne ikke slå til igen: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Originaltilstand: fabrikkens startskærm, pauseskærm og apps er tilbage.",
+  "Partly Cloudy": "Delvist skyet",
+  "PatchWall button": "PatchWall-knap",
++ "Performance": "Ydeevne",
++ "Performance widget": "Ydeevnewidget",
+  "Position": "Placering",
+  "Press OK to watch on {app} · any other button to close": "Tryk på OK for at se i {app} · en anden knap lukker",
+  "Preview": "Se nu",
+@@ -239,6 +245,7 @@
+  "the screensaver": "pauseskærmen",
+  "unexpected reply from ADB": "uventet svar fra ADB",
+  "unit|Automatic": "Automatisk",
++ "{hz} is the screen's maximum": "{hz} er skærmens maksimum",
+  "{h} h {m} min": "{h} t {m} min",
+  "{h}h {m}m": "{h} t {m} min",
+  "{i} of {n}": "{i} af {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, fane {i} af {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} kerner · ~{gb} GB",
+  "{n} h": "{n} t",
+  "{n} h ago": "for {n} t siden",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/de.json b/app/assets/i18n/de.json
+index 5cde2f5..d9e843b 100644
+--- a/app/assets/i18n/de.json
++++ b/app/assets/i18n/de.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Alle Apps",
+  "All Apps button": "Alle-Apps-Taste",
+  "Android didn't accept the new home screen": "Android hat den neuen Startbildschirm nicht angenommen",
++ "App memory": "App-Speicher",
+  "Automatic": "Automatisch",
+  "BRAVIA CORE button": "BRAVIA-CORE-Taste",
+  "Back closes.": "Zurück schließt.",
+@@ -42,6 +43,7 @@
+  "Fog": "Nebel",
+  "For You": "Für dich",
+  "Forecast": "Vorhersage",
++ "Frames per second": "Bilder pro Sekunde",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV ist an: neuer Startbildschirm und Bildschirmschoner, {n} Apps ausgeschaltet.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Der Startbildschirm von Free My TV ist 3-mal hintereinander abgestürzt; der ursprüngliche ist wieder aktiv.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Der Startbildschirm von Free My TV hatte ein Problem.\nZurück zum ursprünglichen Startbildschirm…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google-Play-Taste",
+  "H:{max}": "H:{max}",
+  "HDMI Inputs": "HDMI-Eingänge",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Starker Regen",
+  "High {max}, low {min}.": "Höchstwert {max}, Tiefstwert {min}.",
+  "Home Screen": "Startbildschirm",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Am Fernseher: „Immer zulassen“ ankreuzen und OK drücken.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Bei diesem Fernsehermodell hat der Wechsel des Startbildschirms einen Fernseher am Starten gehindert. Free My TV bleibt hier eine App: Öffne es über deine Apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "An · {n} Titel aus den Apps des Fernsehers, 3 neue pro Stunde.",
++ "On-screen items": "Elemente auf dem Bildschirm",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Originalmodus, aber das ließ sich nicht wieder einschalten: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Originalmodus: Startbildschirm, Bildschirmschoner und Apps ab Werk sind zurück.",
+  "Partly Cloudy": "Teilweise bewölkt",
+  "PatchWall button": "PatchWall-Taste",
++ "Performance": "Leistung",
++ "Performance widget": "Leistungs-Widget",
+  "Position": "Position",
+  "Press OK to watch on {app} · any other button to close": "OK drücken, um in {app} anzusehen · jede andere Taste schließt",
+  "Preview": "Ansehen",
+@@ -239,6 +245,7 @@
+  "the screensaver": "den Bildschirmschoner",
+  "unexpected reply from ADB": "unerwartete Antwort von ADB",
+  "unit|Automatic": "Automatisch",
++ "{hz} is the screen's maximum": "{hz} ist das Maximum des Bildschirms",
+  "{h} h {m} min": "{h} Std. {m} Min.",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} von {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, Tab {i} von {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} Kerne · ~{gb} GB",
+  "{n} h": "{n} Std.",
+  "{n} h ago": "vor {n} Std.",
+  "{n} min": "{n} Min.",
+diff --git a/app/assets/i18n/el.json b/app/assets/i18n/el.json
+index 4214b79..dfe98ac 100644
+--- a/app/assets/i18n/el.json
++++ b/app/assets/i18n/el.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Όλες οι εφαρμογές",
+  "All Apps button": "Κουμπί Όλες οι εφαρμογές",
+  "Android didn't accept the new home screen": "Το Android δεν αποδέχτηκε τη νέα αρχική οθόνη",
++ "App memory": "Μνήμη εφαρμογής",
+  "Automatic": "Αυτόματο",
+  "BRAVIA CORE button": "Κουμπί BRAVIA CORE",
+  "Back closes.": "Το Πίσω κλείνει.",
+@@ -42,6 +43,7 @@
+  "Fog": "Ομίχλη",
+  "For You": "Για εσάς",
+  "Forecast": "Πρόγνωση",
++ "Frames per second": "Καρέ ανά δευτερόλεπτο",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Το Free My TV είναι ενεργό: νέα αρχική οθόνη και προφύλαξη οθόνης, απενεργοποιημένες εφαρμογές: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Η αρχική οθόνη του Free My TV κατέρρευσε 3 φορές στη σειρά· επανήλθε η αρχική.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Η αρχική οθόνη του Free My TV αντιμετώπισε πρόβλημα.\nΕπιστροφή στην αρχική οθόνη της τηλεόρασης…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Κουμπί Google Play",
+  "H:{max}": "Μέγ. {max}",
+  "HDMI Inputs": "Είσοδοι HDMI",
++ "Hardware": "Υλικό",
+  "Heavy Rain": "Ισχυρή βροχή",
+  "High {max}, low {min}.": "Μέγιστη {max}, ελάχιστη {min}.",
+  "Home Screen": "Αρχική οθόνη",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Στην τηλεόραση: επιλέξτε «Να επιτρέπεται πάντα» και πατήστε OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Σε αυτό το μοντέλο τηλεόρασης, η αλλαγή της αρχικής οθόνης εμπόδισε μια τηλεόραση να ξεκινήσει. Εδώ το Free My TV μένει εφαρμογή: ανοίξτε το από τις εφαρμογές σας.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Ενεργές · τίτλοι από τις εφαρμογές της TV: {n}, 3 νέοι κάθε ώρα.",
++ "On-screen items": "Στοιχεία στην οθόνη",
+  "Original": "Αρχικό",
+  "Original mode, but I couldn't turn back on: {list}.": "Αρχική λειτουργία, αλλά δεν ενεργοποιήθηκαν ξανά: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Αρχική λειτουργία: η εργοστασιακή αρχική οθόνη, η προφύλαξη και οι εφαρμογές επανήλθαν.",
+  "Partly Cloudy": "Μερική συννεφιά",
+  "PatchWall button": "Κουμπί PatchWall",
++ "Performance": "Απόδοση",
++ "Performance widget": "Γραφικό στοιχείο απόδοσης",
+  "Position": "Θέση",
+  "Press OK to watch on {app} · any other button to close": "Πατήστε OK για να δείτε στο {app} · οποιοδήποτε άλλο κουμπί κλείνει",
+  "Preview": "Προβολή",
+@@ -239,6 +245,7 @@
+  "the screensaver": "η προφύλαξη οθόνης",
+  "unexpected reply from ADB": "απρόσμενη απάντηση από το ADB",
+  "unit|Automatic": "Αυτόματο",
++ "{hz} is the screen's maximum": "Το {hz} είναι το μέγιστο της οθόνης",
+  "{h} h {m} min": "{h} ώ. {m} λεπ.",
+  "{h}h {m}m": "{h} ώ {m} λ",
+  "{i} of {n}": "{i} από {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, καρτέλα {i} από {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} πυρήνες · ~{gb} GB",
+  "{n} h": "{n} ώ.",
+  "{n} h ago": "πριν από {n} ώ.",
+  "{n} min": "{n} λεπ.",
+diff --git a/app/assets/i18n/en.json b/app/assets/i18n/en.json
+index 3808f5c..a9cbc38 100644
+--- a/app/assets/i18n/en.json
++++ b/app/assets/i18n/en.json
+@@ -10,6 +10,7 @@
+  "All Apps": "All Apps",
+  "All Apps button": "All Apps button",
+  "Android didn't accept the new home screen": "Android didn't accept the new home screen",
++ "App memory": "App memory",
+  "Automatic": "Automatic",
+  "BRAVIA CORE button": "BRAVIA CORE button",
+  "Back closes.": "Back closes.",
+@@ -42,6 +43,7 @@
+  "Fog": "Fog",
+  "For You": "For You",
+  "Forecast": "Forecast",
++ "Frames per second": "Frames per second",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV is on: new home screen and screensaver, {n} apps turned off.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play button",
+  "H:{max}": "H:{max}",
+  "HDMI Inputs": "HDMI Inputs",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Heavy Rain",
+  "High {max}, low {min}.": "High {max}, low {min}.",
+  "Home Screen": "Home Screen",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "On the TV: tick “Always allow” and press OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "On · {n} titles from the TV's apps, 3 new ones every hour.",
++ "On-screen items": "On-screen items",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Original mode, but I couldn't turn back on: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Original mode: the factory home screen, screensaver and apps are back.",
+  "Partly Cloudy": "Partly Cloudy",
+  "PatchWall button": "PatchWall button",
++ "Performance": "Performance",
++ "Performance widget": "Performance widget",
+  "Position": "Position",
+  "Press OK to watch on {app} · any other button to close": "Press OK to watch on {app} · any other button to close",
+  "Preview": "Preview",
+@@ -239,6 +245,7 @@
+  "the screensaver": "the screensaver",
+  "unexpected reply from ADB": "unexpected reply from ADB",
+  "unit|Automatic": "Automatic",
++ "{hz} is the screen's maximum": "{hz} is the screen's maximum",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h}h {m}m",
+  "{i} of {n}": "{i} of {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, tab {i} of {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} cores · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "{n} h ago",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/es.json b/app/assets/i18n/es.json
+index 4682999..cb503d8 100644
+--- a/app/assets/i18n/es.json
++++ b/app/assets/i18n/es.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Todas las apps",
+  "All Apps button": "Botón Todas las apps",
+  "Android didn't accept the new home screen": "Android no aceptó la nueva pantalla de inicio",
++ "App memory": "Memoria de la app",
+  "Automatic": "Automático",
+  "BRAVIA CORE button": "Botón BRAVIA CORE",
+  "Back closes.": "Atrás cierra.",
+@@ -42,6 +43,7 @@
+  "Fog": "Niebla",
+  "For You": "Para ti",
+  "Forecast": "Pronóstico",
++ "Frames per second": "Fotogramas por segundo",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV está activo: nueva pantalla de inicio y protector, {n} apps desactivadas.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "La pantalla de inicio de Free My TV falló 3 veces seguidas; volví a la original.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "La pantalla de inicio de Free My TV tuvo un problema.\nVolviendo a la pantalla original del TV…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Botón Google Play",
+  "H:{max}": "Máx. {max}",
+  "HDMI Inputs": "Entradas HDMI",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Lluvia fuerte",
+  "High {max}, low {min}.": "Máxima {max}, mínima {min}.",
+  "Home Screen": "Pantalla de inicio",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "En el TV: marca “Permitir siempre” y presiona OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "En este modelo de TV, cambiar la pantalla de inicio impidió que un TV encendiera. Aquí Free My TV queda como app: ábrelo desde tus apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Activas · {n} títulos de las apps del TV, 3 nuevos cada hora.",
++ "On-screen items": "Elementos en pantalla",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Modo original, pero no se pudo reactivar: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Modo original: se restauraron la pantalla de inicio, el protector y las apps de fábrica.",
+  "Partly Cloudy": "Parcialmente nublado",
+  "PatchWall button": "Botón PatchWall",
++ "Performance": "Rendimiento",
++ "Performance widget": "Widget de rendimiento",
+  "Position": "Posición",
+  "Press OK to watch on {app} · any other button to close": "Pulsa OK para ver en {app} · cualquier otro botón cierra",
+  "Preview": "Ver ahora",
+@@ -239,6 +245,7 @@
+  "the screensaver": "el protector de pantalla",
+  "unexpected reply from ADB": "respuesta inesperada de ADB",
+  "unit|Automatic": "Automático",
++ "{hz} is the screen's maximum": "{hz} es el máximo de la pantalla",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} de {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, pestaña {i} de {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} núcleos · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "hace {n} h",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/fi.json b/app/assets/i18n/fi.json
+index 80b73f5..c39bdab 100644
+--- a/app/assets/i18n/fi.json
++++ b/app/assets/i18n/fi.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Kaikki sovellukset",
+  "All Apps button": "Kaikki sovellukset -painike",
+  "Android didn't accept the new home screen": "Android ei hyväksynyt uutta aloitusnäyttöä",
++ "App memory": "Sovelluksen muisti",
+  "Automatic": "Automaattinen",
+  "BRAVIA CORE button": "BRAVIA CORE -painike",
+  "Back closes.": "Takaisin sulkee.",
+@@ -42,6 +43,7 @@
+  "Fog": "Sumua",
+  "For You": "Sinulle",
+  "Forecast": "Ennuste",
++ "Frames per second": "Kuvaa sekunnissa",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV on päällä: uusi aloitusnäyttö ja näytönsäästäjä, sovelluksia pois päältä: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV:n aloitusnäyttö kaatui 3 kertaa peräkkäin; alkuperäinen palautettiin.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV:n aloitusnäytössä oli ongelma.\nPalataan television alkuperäiseen aloitusnäyttöön…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play -painike",
+  "H:{max}": "Y:{max}",
+  "HDMI Inputs": "HDMI-tulot",
++ "Hardware": "Laitteisto",
+  "Heavy Rain": "Rankkasadetta",
+  "High {max}, low {min}.": "Ylin {max}, alin {min}.",
+  "Home Screen": "Aloitusnäyttö",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Televisiossa: valitse ”Salli aina” ja paina OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Tässä televisiomallissa aloitusnäytön vaihtaminen esti erästä televisiota käynnistymästä. Täällä Free My TV pysyy sovelluksena: avaa se sovelluksistasi.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Päällä · nimikkeitä TV:n sovelluksista: {n}, 3 uutta tunnissa.",
++ "On-screen items": "Näytön elementit",
+  "Original": "Alkuperäinen",
+  "Original mode, but I couldn't turn back on: {list}.": "Alkuperäinen tila, mutta näitä ei saatu takaisin päälle: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Alkuperäinen tila: tehtaan aloitusnäyttö, näytönsäästäjä ja sovellukset ovat palanneet.",
+  "Partly Cloudy": "Puolipilvistä",
+  "PatchWall button": "PatchWall-painike",
++ "Performance": "Suorituskyky",
++ "Performance widget": "Suorituskykywidget",
+  "Position": "Sijainti",
+  "Press OK to watch on {app} · any other button to close": "Paina OK katsoaksesi palvelussa {app} · mikä tahansa muu painike sulkee",
+  "Preview": "Katso nyt",
+@@ -239,6 +245,7 @@
+  "the screensaver": "näytönsäästäjä",
+  "unexpected reply from ADB": "odottamaton vastaus ADB:ltä",
+  "unit|Automatic": "Automaattinen",
++ "{hz} is the screen's maximum": "{hz} on näytön enimmäisnopeus",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i}/{n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, välilehti {i}/{n}",
+  "{n} GB": "{n} Gt",
+  "{n} MB": "{n} Mt",
++ "{n} cores · ~{gb} GB": "{n} ydintä · ~{gb} Gt",
+  "{n} h": "{n} h",
+  "{n} h ago": "{n} h sitten",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/fr.json b/app/assets/i18n/fr.json
+index b1aea6b..3548fb4 100644
+--- a/app/assets/i18n/fr.json
++++ b/app/assets/i18n/fr.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Toutes les apps",
+  "All Apps button": "Bouton Toutes les apps",
+  "Android didn't accept the new home screen": "Android n'a pas accepté le nouvel écran d'accueil",
++ "App memory": "Mémoire de l’app",
+  "Automatic": "Automatique",
+  "BRAVIA CORE button": "Bouton BRAVIA CORE",
+  "Back closes.": "Retour ferme.",
+@@ -42,6 +43,7 @@
+  "Fog": "Brouillard",
+  "For You": "Pour vous",
+  "Forecast": "Prévisions",
++ "Frames per second": "Images par seconde",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV est activé : nouvel écran d'accueil et économiseur, {n} apps désactivées.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "L'écran d'accueil de Free My TV a planté 3 fois de suite ; retour à l'original.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "L'écran d'accueil de Free My TV a rencontré un problème.\nRetour à l'écran d'accueil d'origine…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Bouton Google Play",
+  "H:{max}": "Max. {max}",
+  "HDMI Inputs": "Entrées HDMI",
++ "Hardware": "Matériel",
+  "Heavy Rain": "Forte pluie",
+  "High {max}, low {min}.": "Maximum {max}, minimum {min}.",
+  "Home Screen": "Écran d'accueil",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Sur la TV : cochez « Toujours autoriser » et appuyez sur OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Sur ce modèle de TV, changer l'écran d'accueil a empêché une TV de démarrer. Ici, Free My TV reste une app : ouvrez-la depuis vos apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Activées · {n} titres des apps de la TV, 3 nouveaux par heure.",
++ "On-screen items": "Éléments à l’écran",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Mode original, mais impossible de réactiver : {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Mode original : l'écran d'accueil, l'économiseur et les apps d'usine sont de retour.",
+  "Partly Cloudy": "Partiellement nuageux",
+  "PatchWall button": "Bouton PatchWall",
++ "Performance": "Performances",
++ "Performance widget": "Widget Performances",
+  "Position": "Position",
+  "Press OK to watch on {app} · any other button to close": "Appuyez sur OK pour regarder sur {app} · tout autre bouton ferme",
+  "Preview": "Voir",
+@@ -239,6 +245,7 @@
+  "the screensaver": "l'économiseur d'écran",
+  "unexpected reply from ADB": "réponse inattendue d'ADB",
+  "unit|Automatic": "Automatique",
++ "{hz} is the screen's maximum": "{hz} est le maximum de l’écran",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} sur {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, onglet {i} sur {n}",
+  "{n} GB": "{n} Go",
+  "{n} MB": "{n} Mo",
++ "{n} cores · ~{gb} GB": "{n} cœurs · ~{gb} Go",
+  "{n} h": "{n} h",
+  "{n} h ago": "il y a {n} h",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/hi.json b/app/assets/i18n/hi.json
+index 55df2b1..638022f 100644
+--- a/app/assets/i18n/hi.json
++++ b/app/assets/i18n/hi.json
+@@ -10,6 +10,7 @@
+  "All Apps": "सभी ऐप",
+  "All Apps button": "सभी ऐप बटन",
+  "Android didn't accept the new home screen": "Android ने नई होम स्क्रीन स्वीकार नहीं की",
++ "App memory": "ऐप की मेमोरी",
+  "Automatic": "अपने-आप",
+  "BRAVIA CORE button": "BRAVIA CORE बटन",
+  "Back closes.": "बैक बंद करता है।",
+@@ -42,6 +43,7 @@
+  "Fog": "कोहरा",
+  "For You": "आपके लिए",
+  "Forecast": "पूर्वानुमान",
++ "Frames per second": "फ़्रेम प्रति सेकंड",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV चालू है: नई होम स्क्रीन और स्क्रीनसेवर, {n} ऐप बंद किए गए।",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV की होम स्क्रीन लगातार 3 बार क्रैश हुई; मूल होम स्क्रीन वापस लगा दी गई।",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV की होम स्क्रीन में समस्या आई।\nTV की मूल होम स्क्रीन पर लौट रहे हैं…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play बटन",
+  "H:{max}": "अधिकतम {max}",
+  "HDMI Inputs": "HDMI इनपुट",
++ "Hardware": "हार्डवेयर",
+  "Heavy Rain": "तेज़ बारिश",
+  "High {max}, low {min}.": "अधिकतम {max}, न्यूनतम {min}।",
+  "Home Screen": "होम स्क्रीन",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "TV पर: “हमेशा अनुमति दें” चुनें और OK दबाएँ।",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "इस TV मॉडल पर होम स्क्रीन बदलने से एक TV चालू होना बंद हो गया था। यहाँ Free My TV एक ऐप ही रहेगा: इसे अपने ऐप्स से खोलें।",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "चालू · TV के ऐप से {n} टाइटल, हर घंटे 3 नए।",
++ "On-screen items": "स्क्रीन पर तत्व",
+  "Original": "मूल",
+  "Original mode, but I couldn't turn back on: {list}.": "मूल मोड, पर ये दोबारा चालू नहीं हो सके: {list}।",
+  "Original mode: the factory home screen, screensaver and apps are back.": "मूल मोड: फ़ैक्ट्री होम स्क्रीन, स्क्रीनसेवर और ऐप वापस आ गए।",
+  "Partly Cloudy": "आंशिक बादल",
+  "PatchWall button": "PatchWall बटन",
++ "Performance": "प्रदर्शन",
++ "Performance widget": "प्रदर्शन विजेट",
+  "Position": "स्थान",
+  "Press OK to watch on {app} · any other button to close": "{app} पर देखने के लिए OK दबाएँ · कोई और बटन बंद करता है",
+  "Preview": "अभी देखें",
+@@ -239,6 +245,7 @@
+  "the screensaver": "स्क्रीनसेवर",
+  "unexpected reply from ADB": "ADB से अनपेक्षित जवाब",
+  "unit|Automatic": "अपने-आप",
++ "{hz} is the screen's maximum": "{hz} स्क्रीन की अधिकतम दर है",
+  "{h} h {m} min": "{h} घं {m} मिनट",
+  "{h}h {m}m": "{h} घं {m} मि",
+  "{i} of {n}": "{n} में से {i}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, टैब {i}/{n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} कोर · ~{gb} GB",
+  "{n} h": "{n} घं",
+  "{n} h ago": "{n} घं पहले",
+  "{n} min": "{n} मिनट",
+diff --git a/app/assets/i18n/id.json b/app/assets/i18n/id.json
+index b333e17..a2069f5 100644
+--- a/app/assets/i18n/id.json
++++ b/app/assets/i18n/id.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Semua Aplikasi",
+  "All Apps button": "Tombol Semua Aplikasi",
+  "Android didn't accept the new home screen": "Android tidak menerima layar utama baru",
++ "App memory": "Memori aplikasi",
+  "Automatic": "Otomatis",
+  "BRAVIA CORE button": "Tombol BRAVIA CORE",
+  "Back closes.": "Kembali untuk menutup.",
+@@ -42,6 +43,7 @@
+  "Fog": "Kabut",
+  "For You": "Untuk Anda",
+  "Forecast": "Prakiraan",
++ "Frames per second": "Bingkai per detik",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV aktif: layar utama dan screensaver baru, {n} aplikasi dimatikan.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Layar utama Free My TV mogok 3 kali berturut-turut; kembali ke yang asli.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Layar utama Free My TV mengalami masalah.\nKembali ke layar utama asli TV…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Tombol Google Play",
+  "H:{max}": "T:{max}",
+  "HDMI Inputs": "Input HDMI",
++ "Hardware": "Perangkat keras",
+  "Heavy Rain": "Hujan Lebat",
+  "High {max}, low {min}.": "Tertinggi {max}, terendah {min}.",
+  "Home Screen": "Layar Utama",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Di TV: centang “Selalu izinkan” lalu tekan OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Pada model TV ini, mengganti layar utama pernah membuat TV tidak bisa menyala. Di sini Free My TV tetap menjadi aplikasi: buka dari daftar aplikasi Anda.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Nyala · {n} judul dari aplikasi TV, 3 baru tiap jam.",
++ "On-screen items": "Elemen di layar",
+  "Original": "Asli",
+  "Original mode, but I couldn't turn back on: {list}.": "Mode asli, tapi tidak bisa menyalakan lagi: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Mode asli: layar utama, screensaver, dan aplikasi bawaan pabrik sudah kembali.",
+  "Partly Cloudy": "Berawan Sebagian",
+  "PatchWall button": "Tombol PatchWall",
++ "Performance": "Kinerja",
++ "Performance widget": "Widget kinerja",
+  "Position": "Posisi",
+  "Press OK to watch on {app} · any other button to close": "Tekan OK untuk menonton di {app} · tombol lain untuk menutup",
+  "Preview": "Lihat sekarang",
+@@ -239,6 +245,7 @@
+  "the screensaver": "screensaver",
+  "unexpected reply from ADB": "balasan tak terduga dari ADB",
+  "unit|Automatic": "Otomatis",
++ "{hz} is the screen's maximum": "{hz} adalah batas maksimum layar",
+  "{h} h {m} min": "{h} jam {m} mnt",
+  "{h}h {m}m": "{h} j {m} mnt",
+  "{i} of {n}": "{i} dari {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, tab {i} dari {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} inti · ~{gb} GB",
+  "{n} h": "{n} jam",
+  "{n} h ago": "{n} jam lalu",
+  "{n} min": "{n} mnt",
+diff --git a/app/assets/i18n/it.json b/app/assets/i18n/it.json
+index 65686b8..9767c14 100644
+--- a/app/assets/i18n/it.json
++++ b/app/assets/i18n/it.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Tutte le app",
+  "All Apps button": "Tasto Tutte le app",
+  "Android didn't accept the new home screen": "Android non ha accettato la nuova schermata Home",
++ "App memory": "Memoria dell’app",
+  "Automatic": "Automatico",
+  "BRAVIA CORE button": "Tasto BRAVIA CORE",
+  "Back closes.": "Indietro chiude.",
+@@ -42,6 +43,7 @@
+  "Fog": "Nebbia",
+  "For You": "Per te",
+  "Forecast": "Previsioni",
++ "Frames per second": "Fotogrammi al secondo",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV è attivo: nuova Home e salvaschermo, {n} app disattivate.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "La Home di Free My TV si è bloccata 3 volte di fila; torno a quella originale.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "La Home di Free My TV ha avuto un problema.\nTorno alla Home originale della TV…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Tasto Google Play",
+  "H:{max}": "Max {max}",
+  "HDMI Inputs": "Ingressi HDMI",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Pioggia forte",
+  "High {max}, low {min}.": "Massima {max}, minima {min}.",
+  "Home Screen": "Schermata Home",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Sulla TV: spunta “Consenti sempre” e premi OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Su questo modello di TV, cambiare la schermata Home ha impedito a una TV di avviarsi. Qui Free My TV resta un'app: aprila dalle tue app.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Attivi · {n} titoli dalle app della TV, 3 nuovi ogni ora.",
++ "On-screen items": "Elementi sullo schermo",
+  "Original": "Originale",
+  "Original mode, but I couldn't turn back on: {list}.": "Modalità originale, ma non ho potuto riattivare: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Modalità originale: Home, salvaschermo e app di fabbrica sono tornati.",
+  "Partly Cloudy": "Parzialmente nuvoloso",
+  "PatchWall button": "Tasto PatchWall",
++ "Performance": "Prestazioni",
++ "Performance widget": "Widget Prestazioni",
+  "Position": "Posizione",
+  "Press OK to watch on {app} · any other button to close": "Premi OK per guardare su {app} · qualsiasi altro tasto chiude",
+  "Preview": "Anteprima",
+@@ -239,6 +245,7 @@
+  "the screensaver": "il salvaschermo",
+  "unexpected reply from ADB": "risposta inattesa da ADB",
+  "unit|Automatic": "Automatica",
++ "{hz} is the screen's maximum": "{hz} è il massimo dello schermo",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} di {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, scheda {i} di {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} core · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "{n} h fa",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/ja.json b/app/assets/i18n/ja.json
+index 2acef14..c062c40 100644
+--- a/app/assets/i18n/ja.json
++++ b/app/assets/i18n/ja.json
+@@ -10,6 +10,7 @@
+  "All Apps": "すべてのアプリ",
+  "All Apps button": "すべてのアプリボタン",
+  "Android didn't accept the new home screen": "Androidが新しいホーム画面を受け付けませんでした",
++ "App memory": "アプリのメモリ",
+  "Automatic": "自動",
+  "BRAVIA CORE button": "BRAVIA COREボタン",
+  "Back closes.": "戻るで閉じます。",
+@@ -42,6 +43,7 @@
+  "Fog": "霧",
+  "For You": "おすすめ",
+  "Forecast": "予報",
++ "Frames per second": "フレーム毎秒",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TVがオン：新しいホーム画面とスクリーンセーバー、{n}個のアプリをオフにしました。",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TVのホーム画面が3回続けて停止したため、元のホーム画面に戻しました。",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TVのホーム画面で問題が発生しました。\nテレビの元のホーム画面に戻ります…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Playボタン",
+  "H:{max}": "最高 {max}",
+  "HDMI Inputs": "HDMI入力",
++ "Hardware": "ハードウェア",
+  "Heavy Rain": "大雨",
+  "High {max}, low {min}.": "最高 {max}、最低 {min}。",
+  "Home Screen": "ホーム画面",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "テレビで「常に許可」にチェックしてOKを押してください。",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "このテレビの機種では、ホーム画面を切り替えたことで起動しなくなった例があります。ここではFree My TVはアプリのままです。アプリ一覧から開いてください。",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "オン · テレビのアプリから{n}作品、毎時3つ更新。",
++ "On-screen items": "画面上の要素",
+  "Original": "オリジナル",
+  "Original mode, but I couldn't turn back on: {list}.": "オリジナルモードですが、次をオンに戻せませんでした：{list}。",
+  "Original mode: the factory home screen, screensaver and apps are back.": "オリジナルモード：工場出荷時のホーム画面、スクリーンセーバー、アプリが戻りました。",
+  "Partly Cloudy": "晴れ時々曇り",
+  "PatchWall button": "PatchWallボタン",
++ "Performance": "パフォーマンス",
++ "Performance widget": "パフォーマンスウィジェット",
+  "Position": "位置",
+  "Press OK to watch on {app} · any other button to close": "OKで{app}で視聴 · ほかのボタンで閉じる",
+  "Preview": "今すぐ見る",
+@@ -239,6 +245,7 @@
+  "the screensaver": "スクリーンセーバー",
+  "unexpected reply from ADB": "ADB から予期しない応答",
+  "unit|Automatic": "自動",
++ "{hz} is the screen's maximum": "{hz} が画面の最大値です",
+  "{h} h {m} min": "{h}時間 {m}分",
+  "{h}h {m}m": "{h}時間{m}分",
+  "{i} of {n}": "{n}件中{i}件目",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}、タブ {i}/{n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} コア · ~{gb} GB",
+  "{n} h": "{n}時間",
+  "{n} h ago": "{n}時間前",
+  "{n} min": "{n}分",
+diff --git a/app/assets/i18n/ko.json b/app/assets/i18n/ko.json
+index 60e0bc2..3aecb0f 100644
+--- a/app/assets/i18n/ko.json
++++ b/app/assets/i18n/ko.json
+@@ -10,6 +10,7 @@
+  "All Apps": "모든 앱",
+  "All Apps button": "모든 앱 버튼",
+  "Android didn't accept the new home screen": "Android가 새 홈 화면을 받아들이지 않았습니다",
++ "App memory": "앱 메모리",
+  "Automatic": "자동",
+  "BRAVIA CORE button": "BRAVIA CORE 버튼",
+  "Back closes.": "뒤로 버튼으로 닫습니다.",
+@@ -42,6 +43,7 @@
+  "Fog": "안개",
+  "For You": "추천",
+  "Forecast": "예보",
++ "Frames per second": "초당 프레임",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV 켜짐: 새 홈 화면과 화면 보호기, 앱 {n}개 꺼짐.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV 홈 화면이 3번 연속 멈춰서 원래 홈 화면으로 돌아갔습니다.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV 홈 화면에 문제가 생겼습니다.\nTV의 원래 홈 화면으로 돌아갑니다…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play 버튼",
+  "H:{max}": "최고 {max}",
+  "HDMI Inputs": "HDMI 입력",
++ "Hardware": "하드웨어",
+  "Heavy Rain": "폭우",
+  "High {max}, low {min}.": "최고 {max}, 최저 {min}.",
+  "Home Screen": "홈 화면",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "TV에서 '항상 허용'을 선택하고 OK를 누르세요.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "이 TV 모델에서는 홈 화면을 바꾸자 TV가 켜지지 않은 사례가 있습니다. 여기서는 Free My TV를 앱으로 사용하세요. 앱 목록에서 열 수 있습니다.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "켬 · TV 앱의 작품 {n}개, 매시간 3개씩 새로.",
++ "On-screen items": "화면 속 항목",
+  "Original": "기본",
+  "Original mode, but I couldn't turn back on: {list}.": "기본 모드지만 다시 켜지 못한 항목: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "기본 모드: 출고 시 홈 화면, 화면 보호기, 앱이 돌아왔습니다.",
+  "Partly Cloudy": "구름 조금",
+  "PatchWall button": "PatchWall 버튼",
++ "Performance": "성능",
++ "Performance widget": "성능 위젯",
+  "Position": "위치",
+  "Press OK to watch on {app} · any other button to close": "OK를 눌러 {app}에서 시청 · 다른 버튼을 누르면 닫힘",
+  "Preview": "지금 보기",
+@@ -239,6 +245,7 @@
+  "the screensaver": "화면 보호기",
+  "unexpected reply from ADB": "ADB에서 예상치 못한 응답",
+  "unit|Automatic": "자동",
++ "{hz} is the screen's maximum": "{hz}이(가) 화면의 최대값입니다",
+  "{h} h {m} min": "{h}시간 {m}분",
+  "{h}h {m}m": "{h}시간 {m}분",
+  "{i} of {n}": "{n}개 중 {i}번째",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, 탭 {i}/{n}",
+  "{n} GB": "{n}GB",
+  "{n} MB": "{n}MB",
++ "{n} cores · ~{gb} GB": "{n}코어 · ~{gb} GB",
+  "{n} h": "{n}시간",
+  "{n} h ago": "{n}시간 전",
+  "{n} min": "{n}분",
+diff --git a/app/assets/i18n/nb.json b/app/assets/i18n/nb.json
+index 9e5ce91..c329108 100644
+--- a/app/assets/i18n/nb.json
++++ b/app/assets/i18n/nb.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Alle apper",
+  "All Apps button": "Alle apper-knappen",
+  "Android didn't accept the new home screen": "Android godtok ikke den nye startskjermen",
++ "App memory": "Appens minne",
+  "Automatic": "Automatisk",
+  "BRAVIA CORE button": "BRAVIA CORE-knappen",
+  "Back closes.": "Tilbake lukker.",
+@@ -42,6 +43,7 @@
+  "Fog": "Tåke",
+  "For You": "For deg",
+  "Forecast": "Værvarsel",
++ "Frames per second": "Bilder per sekund",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV er på: ny startskjerm og skjermsparer, {n} apper slått av.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Startskjermen til Free My TV krasjet 3 ganger på rad; den opprinnelige er tilbake.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Startskjermen til Free My TV fikk et problem.\nGår tilbake til TV-ens opprinnelige startskjerm…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play-knappen",
+  "H:{max}": "Maks. {max}",
+  "HDMI Inputs": "HDMI-innganger",
++ "Hardware": "Maskinvare",
+  "Heavy Rain": "Kraftig regn",
+  "High {max}, low {min}.": "Høyeste {max}, laveste {min}.",
+  "Home Screen": "Startskjerm",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "På TV-en: huk av for «Tillat alltid» og trykk OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "På denne TV-modellen hindret bytte av startskjerm en TV i å starte. Her forblir Free My TV en app: åpne den fra appene dine.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "På · {n} titler fra TV-ens apper, 3 nye hver time.",
++ "On-screen items": "Elementer på skjermen",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Originalmodus, men kunne ikke slå på igjen: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Originalmodus: fabrikkens startskjerm, skjermsparer og apper er tilbake.",
+  "Partly Cloudy": "Delvis skyet",
+  "PatchWall button": "PatchWall-knappen",
++ "Performance": "Ytelse",
++ "Performance widget": "Ytelseswidget",
+  "Position": "Plassering",
+  "Press OK to watch on {app} · any other button to close": "Trykk OK for å se i {app} · en annen knapp lukker",
+  "Preview": "Se nå",
+@@ -239,6 +245,7 @@
+  "the screensaver": "skjermspareren",
+  "unexpected reply from ADB": "uventet svar fra ADB",
+  "unit|Automatic": "Automatisk",
++ "{hz} is the screen's maximum": "{hz} er skjermens maksimum",
+  "{h} h {m} min": "{h} t {m} min",
+  "{h}h {m}m": "{h} t {m} min",
+  "{i} of {n}": "{i} av {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, fane {i} av {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} kjerner · ~{gb} GB",
+  "{n} h": "{n} t",
+  "{n} h ago": "for {n} t siden",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/nl.json b/app/assets/i18n/nl.json
+index bfe0a14..98c41b0 100644
+--- a/app/assets/i18n/nl.json
++++ b/app/assets/i18n/nl.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Alle apps",
+  "All Apps button": "Alle apps-knop",
+  "Android didn't accept the new home screen": "Android heeft het nieuwe startscherm niet geaccepteerd",
++ "App memory": "Geheugen van de app",
+  "Automatic": "Automatisch",
+  "BRAVIA CORE button": "BRAVIA CORE-knop",
+  "Back closes.": "Terug sluit.",
+@@ -42,6 +43,7 @@
+  "Fog": "Mist",
+  "For You": "Voor jou",
+  "Forecast": "Verwachting",
++ "Frames per second": "Beelden per seconde",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV staat aan: nieuw startscherm en schermbeveiliging, {n} apps uitgezet.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Het startscherm van Free My TV is 3 keer achter elkaar gecrasht; het originele is terug.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Het startscherm van Free My TV had een probleem.\nTerug naar het originele startscherm van de tv…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play-knop",
+  "H:{max}": "H:{max}",
+  "HDMI Inputs": "HDMI-ingangen",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Zware regen",
+  "High {max}, low {min}.": "Hoogste {max}, laagste {min}.",
+  "Home Screen": "Startscherm",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Op de tv: vink ‘Altijd toestaan’ aan en druk op OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Op dit tv-model zorgde het wisselen van het startscherm ervoor dat een tv niet meer opstartte. Hier blijft Free My TV een app: open het via je apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Aan · {n} titels uit de apps van de tv, elk uur 3 nieuwe.",
++ "On-screen items": "Items op het scherm",
+  "Original": "Origineel",
+  "Original mode, but I couldn't turn back on: {list}.": "Originele modus, maar dit kon niet weer aan: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Originele modus: startscherm, schermbeveiliging en apps van de fabriek zijn terug.",
+  "Partly Cloudy": "Half bewolkt",
+  "PatchWall button": "PatchWall-knop",
++ "Performance": "Prestaties",
++ "Performance widget": "Prestatiewidget",
+  "Position": "Positie",
+  "Press OK to watch on {app} · any other button to close": "Druk op OK om te kijken in {app} · elke andere knop sluit",
+  "Preview": "Bekijken",
+@@ -239,6 +245,7 @@
+  "the screensaver": "de schermbeveiliging",
+  "unexpected reply from ADB": "onverwacht antwoord van ADB",
+  "unit|Automatic": "Automatisch",
++ "{hz} is the screen's maximum": "{hz} is het maximum van het scherm",
+  "{h} h {m} min": "{h} u {m} min",
+  "{h}h {m}m": "{h} u {m} min",
+  "{i} of {n}": "{i} van {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, tabblad {i} van {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} kernen · ~{gb} GB",
+  "{n} h": "{n} u",
+  "{n} h ago": "{n} u geleden",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/pl.json b/app/assets/i18n/pl.json
+index 9d6c0cb..b988110 100644
+--- a/app/assets/i18n/pl.json
++++ b/app/assets/i18n/pl.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Wszystkie aplikacje",
+  "All Apps button": "Przycisk Wszystkie aplikacje",
+  "Android didn't accept the new home screen": "Android nie przyjął nowego ekranu głównego",
++ "App memory": "Pamięć aplikacji",
+  "Automatic": "Automatyczny",
+  "BRAVIA CORE button": "Przycisk BRAVIA CORE",
+  "Back closes.": "Wstecz zamyka.",
+@@ -42,6 +43,7 @@
+  "Fog": "Mgła",
+  "For You": "Dla Ciebie",
+  "Forecast": "Prognoza",
++ "Frames per second": "Klatki na sekundę",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV włączone: nowy ekran główny i wygaszacz, wyłączone aplikacje: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Ekran główny Free My TV zawiódł 3 razy pod rząd; przywróciłem fabryczny.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Ekran główny Free My TV napotkał problem.\nWracam do fabrycznego ekranu głównego…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Przycisk Google Play",
+  "H:{max}": "Maks. {max}",
+  "HDMI Inputs": "Wejścia HDMI",
++ "Hardware": "Sprzęt",
+  "Heavy Rain": "Ulewa",
+  "High {max}, low {min}.": "Najwyższa {max}, najniższa {min}.",
+  "Home Screen": "Ekran główny",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Na telewizorze zaznacz „Zawsze zezwalaj” i naciśnij OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Na tym modelu telewizora zmiana ekranu głównego uniemożliwiła uruchomienie telewizora. Free My TV pozostaje tu aplikacją: otwórz ją z listy aplikacji.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Włączone · tytuły z aplikacji TV: {n}, 3 nowe co godzinę.",
++ "On-screen items": "Elementy na ekranie",
+  "Original": "Fabryczny",
+  "Original mode, but I couldn't turn back on: {list}.": "Tryb oryginalny, ale nie udało się włączyć: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Tryb fabryczny: ekran główny, wygaszacz i aplikacje wróciły.",
+  "Partly Cloudy": "Częściowe zachmurzenie",
+  "PatchWall button": "Przycisk PatchWall",
++ "Performance": "Wydajność",
++ "Performance widget": "Widżet wydajności",
+  "Position": "Położenie",
+  "Press OK to watch on {app} · any other button to close": "Naciśnij OK, aby oglądać w {app} · inny przycisk zamyka",
+  "Preview": "Podgląd",
+@@ -239,6 +245,7 @@
+  "the screensaver": "wygaszacz",
+  "unexpected reply from ADB": "nieoczekiwana odpowiedź ADB",
+  "unit|Automatic": "Automatyczna",
++ "{hz} is the screen's maximum": "{hz} to maksimum ekranu",
+  "{h} h {m} min": "{h} godz. {m} min",
+  "{h}h {m}m": "{h} godz. {m} min",
+  "{i} of {n}": "{i} z {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, karta {i} z {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} rdzeni · ~{gb} GB",
+  "{n} h": "{n} godz.",
+  "{n} h ago": "{n} godz. temu",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/pt.json b/app/assets/i18n/pt.json
+index 36a21b1..0a33c7c 100644
+--- a/app/assets/i18n/pt.json
++++ b/app/assets/i18n/pt.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Todos os Apps",
+  "All Apps button": "Botão Todos os Apps",
+  "Android didn't accept the new home screen": "o Android não aceitou o novo Início",
++ "App memory": "Memória do app",
+  "Automatic": "Automático",
+  "BRAVIA CORE button": "Botão BRAVIA CORE",
+  "Back closes.": "Voltar fecha.",
+@@ -42,6 +43,7 @@
+  "Fog": "Neblina",
+  "For You": "Para você",
+  "Forecast": "Previsão",
++ "Frames per second": "Quadros por segundo",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV ligado: Início e tela de descanso novos, {n} apps desligados.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "O Início do Free My TV caiu 3 vezes seguidas; voltei para o Início original.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "O Início do Free My TV teve um problema.\nVoltando para o Início original da TV…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Botão Google Play",
+  "H:{max}": "Máx. {max}",
+  "HDMI Inputs": "Entradas HDMI",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Chuva forte",
+  "High {max}, low {min}.": "Máxima {max}, mínima {min}.",
+  "Home Screen": "Início",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Na TV: marque “Sempre permitir” e aperte OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Neste modelo de TV, trocar a tela inicial impediu uma TV de ligar. Aqui o Free My TV fica como app: abra pelos seus apps.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Ligadas · {n} títulos nos apps da TV, 3 novos a cada hora.",
++ "On-screen items": "Elementos na tela",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Modo original, mas não consegui religar: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Modo original: Início, tela de descanso e apps de fábrica de volta.",
+  "Partly Cloudy": "Parcialmente nublado",
+  "PatchWall button": "Botão PatchWall",
++ "Performance": "Desempenho",
++ "Performance widget": "Widget de desempenho",
+  "Position": "Posição",
+  "Press OK to watch on {app} · any other button to close": "Aperte OK para assistir no {app} · qualquer outro botão fecha",
+  "Preview": "Ver agora",
+@@ -239,6 +245,7 @@
+  "the screensaver": "a tela de descanso",
+  "unexpected reply from ADB": "resposta inesperada do ADB",
+  "unit|Automatic": "Automática",
++ "{hz} is the screen's maximum": "{hz} é o máximo da tela",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} de {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, aba {i} de {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} núcleos · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "há {n} h",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/ro.json b/app/assets/i18n/ro.json
+index 52e5dd3..bdf9c0b 100644
+--- a/app/assets/i18n/ro.json
++++ b/app/assets/i18n/ro.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Toate aplicațiile",
+  "All Apps button": "Butonul Toate aplicațiile",
+  "Android didn't accept the new home screen": "Android nu a acceptat noul ecran de pornire",
++ "App memory": "Memoria aplicației",
+  "Automatic": "Automat",
+  "BRAVIA CORE button": "Butonul BRAVIA CORE",
+  "Back closes.": "Înapoi închide.",
+@@ -42,6 +43,7 @@
+  "Fog": "Ceață",
+  "For You": "Pentru tine",
+  "Forecast": "Prognoză",
++ "Frames per second": "Cadre pe secundă",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV e activ: ecran de pornire și screensaver noi, aplicații dezactivate: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Ecranul de pornire Free My TV s-a blocat de 3 ori la rând; am revenit la cel original.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Ecranul de pornire Free My TV a întâmpinat o problemă.\nRevin la ecranul de pornire original…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Butonul Google Play",
+  "H:{max}": "Max. {max}",
+  "HDMI Inputs": "Intrări HDMI",
++ "Hardware": "Hardware",
+  "Heavy Rain": "Ploaie puternică",
+  "High {max}, low {min}.": "Maxima {max}, minima {min}.",
+  "Home Screen": "Ecran de pornire",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Pe televizor: bifează „Permite întotdeauna” și apasă OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Pe acest model de televizor, schimbarea ecranului de pornire a împiedicat un televizor să pornească. Aici Free My TV rămâne o aplicație: deschide-o din aplicațiile tale.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Activate · titluri din aplicațiile TV: {n}, 3 noi în fiecare oră.",
++ "On-screen items": "Elemente pe ecran",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Mod original, dar nu am putut reactiva: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Mod original: ecranul de pornire, screensaverul și aplicațiile din fabrică au revenit.",
+  "Partly Cloudy": "Parțial noros",
+  "PatchWall button": "Butonul PatchWall",
++ "Performance": "Performanță",
++ "Performance widget": "Widget de performanță",
+  "Position": "Poziție",
+  "Press OK to watch on {app} · any other button to close": "Apasă OK pentru a viziona în {app} · orice alt buton închide",
+  "Preview": "Vezi acum",
+@@ -239,6 +245,7 @@
+  "the screensaver": "screensaverul",
+  "unexpected reply from ADB": "răspuns neașteptat de la ADB",
+  "unit|Automatic": "Automat",
++ "{hz} is the screen's maximum": "{hz} este maximul ecranului",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} din {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, fila {i} din {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} nuclee · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "acum {n} h",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/ru.json b/app/assets/i18n/ru.json
+index 3ec2c0f..83a972d 100644
+--- a/app/assets/i18n/ru.json
++++ b/app/assets/i18n/ru.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Приложения",
+  "All Apps button": "Кнопка «Приложения»",
+  "Android didn't accept the new home screen": "Android не принял новый главный экран",
++ "App memory": "Память приложения",
+  "Automatic": "Автоматически",
+  "BRAVIA CORE button": "Кнопка BRAVIA CORE",
+  "Back closes.": "«Назад» закрывает.",
+@@ -42,6 +43,7 @@
+  "Fog": "Туман",
+  "For You": "Для вас",
+  "Forecast": "Прогноз",
++ "Frames per second": "Кадров в секунду",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV включён: новый главный экран и заставка; отключено приложений: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Главный экран Free My TV аварийно завершился 3 раза подряд; восстановлен заводской главный экран.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Ошибка главного экрана Free My TV.\nВозвращаемся к заводскому главному экрану…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Кнопка Google Play",
+  "H:{max}": "Макс. {max}",
+  "HDMI Inputs": "Входы HDMI",
++ "Hardware": "Железо",
+  "Heavy Rain": "Сильный дождь",
+  "High {max}, low {min}.": "Максимум {max}, минимум {min}.",
+  "Home Screen": "Главный экран",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "На телевизоре отметьте «Всегда разрешать» и нажмите OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "На этой модели телевизора замена главного экрана помешала телевизору включиться. Здесь Free My TV остаётся приложением: открывайте его из списка приложений.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Вкл. · Рекомендаций из приложений телевизора: {n}; 3 новых каждый час.",
++ "On-screen items": "Элементов на экране",
+  "Original": "Заводской",
+  "Original mode, but I couldn't turn back on: {list}.": "Заводской режим, но не удалось включить: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Заводской режим: восстановлены главный экран, заставка и приложения.",
+  "Partly Cloudy": "Переменная облачность",
+  "PatchWall button": "Кнопка PatchWall",
++ "Performance": "Производительность",
++ "Performance widget": "Виджет производительности",
+  "Position": "Положение",
+  "Press OK to watch on {app} · any other button to close": "Нажмите OK, чтобы смотреть в {app} · любая другая кнопка закрывает",
+  "Preview": "Предпросмотр",
+@@ -239,6 +245,7 @@
+  "the screensaver": "заставка",
+  "unexpected reply from ADB": "неожиданный ответ ADB",
+  "unit|Automatic": "Автоматически",
++ "{hz} is the screen's maximum": "{hz} — максимум экрана",
+  "{h} h {m} min": "{h} ч {m} мин",
+  "{h}h {m}m": "{h} ч {m} мин",
+  "{i} of {n}": "{i} из {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, вкладка {i} из {n}",
+  "{n} GB": "{n} ГБ",
+  "{n} MB": "{n} МБ",
++ "{n} cores · ~{gb} GB": "{n} ядер · ~{gb} ГБ",
+  "{n} h": "{n} ч",
+  "{n} h ago": "{n} ч назад",
+  "{n} min": "{n} мин",
+diff --git a/app/assets/i18n/sv.json b/app/assets/i18n/sv.json
+index 8dfc2d0..9eb9fcc 100644
+--- a/app/assets/i18n/sv.json
++++ b/app/assets/i18n/sv.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Alla appar",
+  "All Apps button": "Alla appar-knappen",
+  "Android didn't accept the new home screen": "Android godkände inte den nya hemskärmen",
++ "App memory": "Appens minne",
+  "Automatic": "Automatiskt",
+  "BRAVIA CORE button": "BRAVIA CORE-knappen",
+  "Back closes.": "Tillbaka stänger.",
+@@ -42,6 +43,7 @@
+  "Fog": "Dimma",
+  "For You": "För dig",
+  "Forecast": "Prognos",
++ "Frames per second": "Bildrutor per sekund",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV är på: ny hemskärm och skärmsläckare, {n} appar avstängda.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV:s hemskärm kraschade 3 gånger i rad; originalet är tillbaka.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV:s hemskärm fick ett problem.\nGår tillbaka till tv:ns ursprungliga hemskärm…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play-knappen",
+  "H:{max}": "Max {max}",
+  "HDMI Inputs": "HDMI-ingångar",
++ "Hardware": "Hårdvara",
+  "Heavy Rain": "Kraftigt regn",
+  "High {max}, low {min}.": "Högsta {max}, lägsta {min}.",
+  "Home Screen": "Hemskärm",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "På tv:n: markera ”Tillåt alltid” och tryck på OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "På den här tv-modellen gjorde ett byte av hemskärm att en tv inte startade. Här förblir Free My TV en app: öppna den bland dina appar.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "På · {n} titlar från tv:ns appar, 3 nya varje timme.",
++ "On-screen items": "Objekt på skärmen",
+  "Original": "Original",
+  "Original mode, but I couldn't turn back on: {list}.": "Originalläge, men kunde inte slå på igen: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Originalläge: fabrikens hemskärm, skärmsläckare och appar är tillbaka.",
+  "Partly Cloudy": "Växlande molnighet",
+  "PatchWall button": "PatchWall-knappen",
++ "Performance": "Prestanda",
++ "Performance widget": "Prestandawidget",
+  "Position": "Placering",
+  "Press OK to watch on {app} · any other button to close": "Tryck på OK för att titta i {app} · andra knappar stänger",
+  "Preview": "Visa nu",
+@@ -239,6 +245,7 @@
+  "the screensaver": "skärmsläckaren",
+  "unexpected reply from ADB": "oväntat svar från ADB",
+  "unit|Automatic": "Automatiskt",
++ "{hz} is the screen's maximum": "{hz} är skärmens maximum",
+  "{h} h {m} min": "{h} h {m} min",
+  "{h}h {m}m": "{h} h {m} min",
+  "{i} of {n}": "{i} av {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, flik {i} av {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} kärnor · ~{gb} GB",
+  "{n} h": "{n} h",
+  "{n} h ago": "för {n} h sedan",
+  "{n} min": "{n} min",
+diff --git a/app/assets/i18n/th.json b/app/assets/i18n/th.json
+index 85329e9..6d24a16 100644
+--- a/app/assets/i18n/th.json
++++ b/app/assets/i18n/th.json
+@@ -10,6 +10,7 @@
+  "All Apps": "แอปทั้งหมด",
+  "All Apps button": "ปุ่มแอปทั้งหมด",
+  "Android didn't accept the new home screen": "Android ไม่ยอมรับหน้าหลักใหม่",
++ "App memory": "หน่วยความจำของแอป",
+  "Automatic": "อัตโนมัติ",
+  "BRAVIA CORE button": "ปุ่ม BRAVIA CORE",
+  "Back closes.": "กดย้อนกลับเพื่อปิด",
+@@ -42,6 +43,7 @@
+  "Fog": "หมอก",
+  "For You": "สำหรับคุณ",
+  "Forecast": "พยากรณ์",
++ "Frames per second": "เฟรมต่อวินาที",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV เปิดอยู่: หน้าหลักและสกรีนเซฟเวอร์ใหม่ ปิดแอปไปแล้ว {n} รายการ",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "หน้าหลัก Free My TV ขัดข้อง 3 ครั้งติด จึงสลับกลับไปใช้หน้าหลักเดิม",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "หน้าหลัก Free My TV เกิดปัญหา\nกำลังกลับไปใช้หน้าหลักเดิมของทีวี…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "ปุ่ม Google Play",
+  "H:{max}": "สูง {max}",
+  "HDMI Inputs": "ช่อง HDMI",
++ "Hardware": "ฮาร์ดแวร์",
+  "Heavy Rain": "ฝนตกหนัก",
+  "High {max}, low {min}.": "สูงสุด {max} ต่ำสุด {min}",
+  "Home Screen": "หน้าหลัก",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "ที่ทีวี: ติ๊ก “อนุญาตเสมอ” แล้วกด OK",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "ในทีวีรุ่นนี้ การสลับหน้าหลักเคยทำให้ทีวีเปิดไม่ขึ้น ที่นี่ Free My TV จึงเป็นแค่แอป: เปิดได้จากรายการแอปของคุณ",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "เปิด · แนะนำจากแอปในทีวี {n} รายการ ใหม่ 3 รายการทุกชั่วโมง",
++ "On-screen items": "องค์ประกอบบนหน้าจอ",
+  "Original": "ของเดิม",
+  "Original mode, but I couldn't turn back on: {list}.": "โหมดของเดิม แต่เปิดกลับคืนไม่ได้: {list}",
+  "Original mode: the factory home screen, screensaver and apps are back.": "โหมดของเดิม: คืนหน้าหลัก สกรีนเซฟเวอร์ และแอปทั้งหมดแล้ว",
+  "Partly Cloudy": "มีเมฆบางส่วน",
+  "PatchWall button": "ปุ่ม PatchWall",
++ "Performance": "ประสิทธิภาพ",
++ "Performance widget": "วิดเจ็ตประสิทธิภาพ",
+  "Position": "ตำแหน่ง",
+  "Press OK to watch on {app} · any other button to close": "กด OK เพื่อดูใน {app} · ปุ่มอื่นเพื่อปิด",
+  "Preview": "ดูตัวอย่าง",
+@@ -239,6 +245,7 @@
+  "the screensaver": "สกรีนเซฟเวอร์",
+  "unexpected reply from ADB": "ได้รับการตอบกลับที่ไม่คาดคิดจาก ADB",
+  "unit|Automatic": "อัตโนมัติ",
++ "{hz} is the screen's maximum": "{hz} คือค่าสูงสุดของหน้าจอ",
+  "{h} h {m} min": "{h} ชม. {m} นาที",
+  "{h}h {m}m": "{h} ชม. {m} นาที",
+  "{i} of {n}": "{i} จาก {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, แท็บ {i} จาก {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} คอร์ · ~{gb} GB",
+  "{n} h": "{n} ชม.",
+  "{n} h ago": "{n} ชม.ที่แล้ว",
+  "{n} min": "{n} นาที",
+diff --git a/app/assets/i18n/tr.json b/app/assets/i18n/tr.json
+index 43d37dd..dfbace5 100644
+--- a/app/assets/i18n/tr.json
++++ b/app/assets/i18n/tr.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Tüm Uygulamalar",
+  "All Apps button": "Tüm Uygulamalar tuşu",
+  "Android didn't accept the new home screen": "Android yeni ana ekranı kabul etmedi",
++ "App memory": "Uygulama belleği",
+  "Automatic": "Otomatik",
+  "BRAVIA CORE button": "BRAVIA CORE tuşu",
+  "Back closes.": "Geri kapatır.",
+@@ -42,6 +43,7 @@
+  "Fog": "Sisli",
+  "For You": "Senin İçin",
+  "Forecast": "Tahmin",
++ "Frames per second": "Saniyedeki kare",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV açık: yeni ana ekran ve ekran koruyucu, {n} uygulama kapatıldı.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV ana ekranı art arda 3 kez çöktü; orijinal ana ekrana dönüldü.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV ana ekranında bir sorun oluştu.\nTV'nin orijinal ana ekranına dönülüyor…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play tuşu",
+  "H:{max}": "Y:{max}",
+  "HDMI Inputs": "HDMI Girişleri",
++ "Hardware": "Donanım",
+  "Heavy Rain": "Kuvvetli yağmur",
+  "High {max}, low {min}.": "En yüksek {max}, en düşük {min}.",
+  "Home Screen": "Ana Ekran",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "TV'de: “Her zaman izin ver”i işaretleyip OK'e basın.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Bu TV modelinde ana ekranı değiştirmek bir TV'nin açılmasını engelledi. Free My TV burada bir uygulama olarak kalır: uygulamalarınızdan açın.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Açık · TV'deki uygulamalardan {n} içerik, her saat 3 yeni.",
++ "On-screen items": "Ekrandaki öğeler",
+  "Original": "Orijinal",
+  "Original mode, but I couldn't turn back on: {list}.": "Orijinal mod, ancak şunlar yeniden açılamadı: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Orijinal mod: fabrika ana ekranı, ekran koruyucu ve uygulamalar geri geldi.",
+  "Partly Cloudy": "Parçalı bulutlu",
+  "PatchWall button": "PatchWall tuşu",
++ "Performance": "Performans",
++ "Performance widget": "Performans widget’ı",
+  "Position": "Konum",
+  "Press OK to watch on {app} · any other button to close": "{app} uygulamasında izlemek için OK'e basın · başka bir tuş kapatır",
+  "Preview": "Önizle",
+@@ -239,6 +245,7 @@
+  "the screensaver": "ekran koruyucu",
+  "unexpected reply from ADB": "ADB'den beklenmeyen yanıt",
+  "unit|Automatic": "Otomatik",
++ "{hz} is the screen's maximum": "{hz} ekranın maksimumudur",
+  "{h} h {m} min": "{h} sa {m} dk",
+  "{h}h {m}m": "{h} sa {m} dk",
+  "{i} of {n}": "{i}, toplam {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, sekme {i}, toplam {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} çekirdek · ~{gb} GB",
+  "{n} h": "{n} sa",
+  "{n} h ago": "{n} sa önce",
+  "{n} min": "{n} dk",
+diff --git a/app/assets/i18n/uk.json b/app/assets/i18n/uk.json
+index deeb362..c98ef2d 100644
+--- a/app/assets/i18n/uk.json
++++ b/app/assets/i18n/uk.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Усі додатки",
+  "All Apps button": "Кнопка «Усі додатки»",
+  "Android didn't accept the new home screen": "Android не прийняв новий головний екран",
++ "App memory": "Пам’ять застосунку",
+  "Automatic": "Автоматично",
+  "BRAVIA CORE button": "Кнопка BRAVIA CORE",
+  "Back closes.": "«Назад» закриває.",
+@@ -42,6 +43,7 @@
+  "Fog": "Туман",
+  "For You": "Для вас",
+  "Forecast": "Прогноз",
++ "Frames per second": "Кадрів за секунду",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV увімкнено: новий головний екран і заставка, вимкнено додатків: {n}.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Головний екран Free My TV збоїв 3 рази поспіль; повернуто початковий.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "На головному екрані Free My TV сталася помилка.\nПовернення до початкового головного екрана…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Кнопка Google Play",
+  "H:{max}": "Макс. {max}",
+  "HDMI Inputs": "Входи HDMI",
++ "Hardware": "Обладнання",
+  "Heavy Rain": "Сильний дощ",
+  "High {max}, low {min}.": "Максимум {max}, мінімум {min}.",
+  "Home Screen": "Головний екран",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "На телевізорі позначте «Завжди дозволяти» й натисніть OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "На цій моделі телевізора заміна головного екрана завадила телевізору ввімкнутися. Тут Free My TV залишається застосунком: відкривайте його зі списку застосунків.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Увімк. · з додатків ТВ: {n}, 3 нових щогодини.",
++ "On-screen items": "Елементів на екрані",
+  "Original": "Початковий",
+  "Original mode, but I couldn't turn back on: {list}.": "Початковий режим, але не вдалося увімкнути: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Початковий режим: заводські головний екран, заставка й додатки повернулися.",
+  "Partly Cloudy": "Мінлива хмарність",
+  "PatchWall button": "Кнопка PatchWall",
++ "Performance": "Продуктивність",
++ "Performance widget": "Віджет продуктивності",
+  "Position": "Розташування",
+  "Press OK to watch on {app} · any other button to close": "Натисніть OK, щоб дивитися в {app} · будь-яка інша кнопка закриває",
+  "Preview": "Переглянути",
+@@ -239,6 +245,7 @@
+  "the screensaver": "заставка",
+  "unexpected reply from ADB": "неочікувана відповідь ADB",
+  "unit|Automatic": "Автоматично",
++ "{hz} is the screen's maximum": "{hz} — максимум екрана",
+  "{h} h {m} min": "{h} год {m} хв",
+  "{h}h {m}m": "{h} год {m} хв",
+  "{i} of {n}": "{i} з {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, вкладка {i} з {n}",
+  "{n} GB": "{n} ГБ",
+  "{n} MB": "{n} МБ",
++ "{n} cores · ~{gb} GB": "{n} ядер · ~{gb} ГБ",
+  "{n} h": "{n} год",
+  "{n} h ago": "{n} год тому",
+  "{n} min": "{n} хв",
+diff --git a/app/assets/i18n/vi.json b/app/assets/i18n/vi.json
+index c168165..c8ce959 100644
+--- a/app/assets/i18n/vi.json
++++ b/app/assets/i18n/vi.json
+@@ -10,6 +10,7 @@
+  "All Apps": "Tất cả ứng dụng",
+  "All Apps button": "Nút Tất cả ứng dụng",
+  "Android didn't accept the new home screen": "Android không chấp nhận màn hình chính mới",
++ "App memory": "Bộ nhớ của ứng dụng",
+  "Automatic": "Tự động",
+  "BRAVIA CORE button": "Nút BRAVIA CORE",
+  "Back closes.": "Nhấn Quay lại để đóng.",
+@@ -42,6 +43,7 @@
+  "Fog": "Sương mù",
+  "For You": "Dành cho bạn",
+  "Forecast": "Dự báo",
++ "Frames per second": "Khung hình mỗi giây",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV đã bật: màn hình chính và trình bảo vệ màn hình mới, đã tắt {n} ứng dụng.",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Màn hình chính Free My TV bị lỗi 3 lần liên tiếp; đã chuyển về màn hình gốc.",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Màn hình chính Free My TV gặp sự cố.\nĐang quay về màn hình chính gốc của TV…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Nút Google Play",
+  "H:{max}": "C:{max}",
+  "HDMI Inputs": "Đầu vào HDMI",
++ "Hardware": "Phần cứng",
+  "Heavy Rain": "Mưa to",
+  "High {max}, low {min}.": "Cao nhất {max}, thấp nhất {min}.",
+  "Home Screen": "Màn hình chính",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "Trên TV: đánh dấu “Luôn cho phép” rồi nhấn OK.",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "Trên mẫu TV này, việc đổi màn hình chính từng khiến một TV không khởi động được. Ở đây Free My TV vẫn là một ứng dụng: hãy mở nó từ danh sách ứng dụng.",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "Bật · {n} phim từ ứng dụng của TV, mỗi giờ 3 phim mới.",
++ "On-screen items": "Mục trên màn hình",
+  "Original": "Gốc",
+  "Original mode, but I couldn't turn back on: {list}.": "Chế độ gốc, nhưng không bật lại được: {list}.",
+  "Original mode: the factory home screen, screensaver and apps are back.": "Chế độ gốc: màn hình chính, trình bảo vệ màn hình và ứng dụng gốc đã trở lại.",
+  "Partly Cloudy": "Có mây",
+  "PatchWall button": "Nút PatchWall",
++ "Performance": "Hiệu năng",
++ "Performance widget": "Tiện ích hiệu năng",
+  "Position": "Vị trí",
+  "Press OK to watch on {app} · any other button to close": "Nhấn OK để xem trên {app} · nút khác để đóng",
+  "Preview": "Xem ngay",
+@@ -239,6 +245,7 @@
+  "the screensaver": "trình bảo vệ màn hình",
+  "unexpected reply from ADB": "phản hồi không mong đợi từ ADB",
+  "unit|Automatic": "Tự động",
++ "{hz} is the screen's maximum": "{hz} là mức tối đa của màn hình",
+  "{h} h {m} min": "{h} giờ {m} phút",
+  "{h}h {m}m": "{h} giờ {m} phút",
+  "{i} of {n}": "{i} trên {n}",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}, thẻ {i} trên {n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} nhân · ~{gb} GB",
+  "{n} h": "{n} giờ",
+  "{n} h ago": "{n} giờ trước",
+  "{n} min": "{n} phút",
+diff --git a/app/assets/i18n/zh-CN.json b/app/assets/i18n/zh-CN.json
+index dd0a5e1..8d06bf4 100644
+--- a/app/assets/i18n/zh-CN.json
++++ b/app/assets/i18n/zh-CN.json
+@@ -10,6 +10,7 @@
+  "All Apps": "所有应用",
+  "All Apps button": "所有应用键",
+  "Android didn't accept the new home screen": "Android 未接受新的主屏幕",
++ "App memory": "应用内存",
+  "Automatic": "自动",
+  "BRAVIA CORE button": "BRAVIA CORE 键",
+  "Back closes.": "按返回键关闭。",
+@@ -42,6 +43,7 @@
+  "Fog": "雾",
+  "For You": "为你推荐",
+  "Forecast": "预报",
++ "Frames per second": "每秒帧数",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV 已开启：新的主屏幕和屏保，已关闭 {n} 个应用。",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV 主屏幕连续崩溃 3 次，已切回原来的主屏幕。",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV 主屏幕出现问题。\n正在返回电视原来的主屏幕…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play 键",
+  "H:{max}": "最高 {max}",
+  "HDMI Inputs": "HDMI 输入",
++ "Hardware": "硬件",
+  "Heavy Rain": "大雨",
+  "High {max}, low {min}.": "最高 {max}，最低 {min}。",
+  "Home Screen": "主屏幕",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "在电视上：勾选“一律允许”并按 OK。",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "在这款电视型号上，切换主屏幕曾导致电视无法启动。在这里 Free My TV 保持为应用：请从应用列表中打开。",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "已开启 · 来自电视应用的 {n} 部作品，每小时更新 3 部。",
++ "On-screen items": "屏幕上的元素",
+  "Original": "原版",
+  "Original mode, but I couldn't turn back on: {list}.": "已恢复原版模式，但以下项目未能重新开启：{list}。",
+  "Original mode: the factory home screen, screensaver and apps are back.": "原版模式：出厂主屏幕、屏保和应用都已恢复。",
+  "Partly Cloudy": "多云",
+  "PatchWall button": "PatchWall 键",
++ "Performance": "性能",
++ "Performance widget": "性能小组件",
+  "Position": "位置",
+  "Press OK to watch on {app} · any other button to close": "按 OK 在 {app} 中观看 · 按其他键关闭",
+  "Preview": "立即查看",
+@@ -239,6 +245,7 @@
+  "the screensaver": "屏保",
+  "unexpected reply from ADB": "ADB 的回复异常",
+  "unit|Automatic": "自动",
++ "{hz} is the screen's maximum": "{hz} 是屏幕的最大值",
+  "{h} h {m} min": "{h} 小时 {m} 分钟",
+  "{h}h {m}m": "{h} 小时 {m} 分钟",
+  "{i} of {n}": "第 {i} 项，共 {n} 项",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}，标签 {i}/{n}",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} 核 · ~{gb} GB",
+  "{n} h": "{n} 小时",
+  "{n} h ago": "{n} 小时前",
+  "{n} min": "{n} 分钟",
+diff --git a/app/assets/i18n/zh-TW.json b/app/assets/i18n/zh-TW.json
+index a04e045..7ddc9d4 100644
+--- a/app/assets/i18n/zh-TW.json
++++ b/app/assets/i18n/zh-TW.json
+@@ -10,6 +10,7 @@
+  "All Apps": "所有應用程式",
+  "All Apps button": "所有應用程式按鈕",
+  "Android didn't accept the new home screen": "Android 未接受新的主畫面",
++ "App memory": "App 記憶體",
+  "Automatic": "自動",
+  "BRAVIA CORE button": "BRAVIA CORE 按鈕",
+  "Back closes.": "按返回鍵關閉。",
+@@ -42,6 +43,7 @@
+  "Fog": "有霧",
+  "For You": "為你推薦",
+  "Forecast": "天氣預報",
++ "Frames per second": "每秒影格數",
+  "Free My TV is on: new home screen and screensaver, {n} apps turned off.": "Free My TV 已啟用：已套用新的主畫面和螢幕保護程式，並停用 {n} 個應用程式。",
+  "Free My TV's home screen crashed 3 times in a row; I switched back to the original one.": "Free My TV 的主畫面連續當機 3 次，已切換回原始主畫面。",
+  "Free My TV's home screen ran into a problem.\nGoing back to the TV's original home screen…": "Free My TV 的主畫面發生問題。\n正在切換回電視的原始主畫面…",
+@@ -49,6 +51,7 @@
+  "Google Play button": "Google Play 按鈕",
+  "H:{max}": "最高 {max}",
+  "HDMI Inputs": "HDMI 輸入源",
++ "Hardware": "硬體",
+  "Heavy Rain": "大雨",
+  "High {max}, low {min}.": "最高 {max}，最低 {min}。",
+  "Home Screen": "主畫面",
+@@ -110,11 +113,14 @@
+  "On the TV: tick “Always allow” and press OK.": "請在電視上勾選「一律允許」，然後按下 OK。",
+  "On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.": "在這款電視上，切換主畫面可能導致電視無法啟動。因此 Free My TV 僅作為一般應用程式使用，請從應用程式清單中開啟。",
+  "On · {n} titles from the TV's apps, 3 new ones every hour.": "已開啟 · 收錄來自電視應用程式的 {n} 部作品，每小時新增 3 部。",
++ "On-screen items": "畫面上的元素",
+  "Original": "原始設定",
+  "Original mode, but I couldn't turn back on: {list}.": "已切換回原始模式，但無法重新啟用以下項目：{list}。",
+  "Original mode: the factory home screen, screensaver and apps are back.": "原始模式：已還原出廠主畫面、螢幕保護程式和應用程式。",
+  "Partly Cloudy": "局部多雲",
+  "PatchWall button": "PatchWall 按鈕",
++ "Performance": "效能",
++ "Performance widget": "效能小工具",
+  "Position": "位置",
+  "Press OK to watch on {app} · any other button to close": "按 OK 在 {app} 中觀看 · 按其他鍵關閉",
+  "Preview": "預覽",
+@@ -239,6 +245,7 @@
+  "the screensaver": "螢幕保護程式",
+  "unexpected reply from ADB": "ADB 傳回非預期的回應",
+  "unit|Automatic": "自動",
++ "{hz} is the screen's maximum": "{hz} 是螢幕的最大值",
+  "{h} h {m} min": "{h} 小時 {m} 分鐘",
+  "{h}h {m}m": "{h} 小時 {m} 分鐘",
+  "{i} of {n}": "第 {i} 項，共 {n} 項",
+@@ -246,6 +253,7 @@
+  "{name}, tab {i} of {n}": "{name}，第 {i} 個索引標籤，共 {n} 個",
+  "{n} GB": "{n} GB",
+  "{n} MB": "{n} MB",
++ "{n} cores · ~{gb} GB": "{n} 核心 · ~{gb} GB",
+  "{n} h": "{n} 小時",
+  "{n} h ago": "{n} 小時前",
+  "{n} min": "{n} 分鐘",
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 5c2e977..5150a0b 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -2,6 +2,7 @@ package io.freemytv;
+ 
+ import android.accessibilityservice.AccessibilityServiceInfo;
+ import android.app.Activity;
++import android.app.ActivityManager;
+ import android.content.Context;
+ import android.content.SharedPreferences;
+ import android.content.pm.LauncherApps;
+@@ -16,6 +17,8 @@ import android.graphics.Rect;
+ import android.graphics.RectF;
+ import android.graphics.Shader;
+ import android.media.tv.TvInputManager;
++import android.os.Build;
++import android.os.Debug;
+ import android.os.Handler;
+ import android.os.Looper;
+ import android.os.SystemClock;
+@@ -38,6 +41,7 @@ import java.util.ArrayDeque;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
++import java.util.Locale;
+ import java.util.Map;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+@@ -210,7 +214,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private int drawerInputs;          // how many leading items are inputs (the rest are shortcuts)
+     private Spring[] drawerFocus = new Spring[0];
+     private RectF[] drawerRects = new RectF[0];
+-    private final RectF weatherCard = new RectF(), quotesCard = new RectF();
++    private final RectF weatherCard = new RectF(), quotesCard = new RectF(), perfCard = new RectF();
++    // Performance card: frames counted over one second while the drawer is open (the drawer redraws on every frame,
++    // so this is the rate the TV really reaches), and the numbers read at the same tick (once a second, not per frame).
++    private int fpsFrames, fpsValue, perfStamp;
++    private long fpsSince;
++    private String perfMemory = "", perfHardware = "", perfItems = "", perfMax = "";
++    private float perfRatio;
++    private Paint perfBig, perfUnit, perfLabel, perfValue;
++    private TextPaint perfLabelTp, perfModelTp;   // for measuring and cutting text, made once
+     private final Spring drawer = new Spring(0.46f, 0.92f, 0);
+     private boolean drawerOpen;
+     private int drawerIndex;
+@@ -674,6 +686,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         pricePaint.setTextAlign(Paint.Align.RIGHT);
+         changePaint = Ui.numbers(Ui.semibold, 21 * k, 0xFFFFFFFF);
+         changePaint.setTextAlign(Paint.Align.CENTER);
++        perfBig = Ui.numbers(Ui.light, 84 * k, 0xFFFFFFFF);
++        perfUnit = Ui.numbers(Ui.medium, 24 * k, 0xADFFFFFF);
++        perfLabel = Ui.text(Ui.medium, 20 * k, 0xADFFFFFF);
++        perfValue = Ui.numbers(Ui.medium, 22 * k, 0xF2FFFFFF);
++        perfValue.setTextAlign(Paint.Align.RIGHT);
++        perfLabelTp = new TextPaint(perfLabel);
++        perfModelTp = new TextPaint(cardDimRight);
+         sheetTitle = Ui.text(Ui.displaySemibold, 40 * k, 0xFFFFFFFF);
+         sheetTitle.setTextAlign(Paint.Align.CENTER);
+         gridLabel = new TextPaint(Ui.text(Ui.medium, 24 * k, 0x99FFFFFF));
+@@ -697,6 +716,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (frameTimeNanos - lastNanos) / 1e9f);
+         lastNanos = frameTimeNanos;
+         long up = SystemClock.uptimeMillis();
++        tickPerformance(frameTimeNanos);
+ 
+         boolean tilesMoving = step(tileFocus, dt);
+         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
+@@ -1594,10 +1614,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
+         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
+         // A card that is off gives its room to the other one.
+-        weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
+-        quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
++        boolean pf = Prefs.performance();
++        if (!pf) {
++            weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
++            quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
++            perfCard.setEmpty();
++        } else {
++            // Up to three cards share the row in these proportions (a card that is off gives its room to the others).
++            float ww = wx ? 0.40f : 0, qw = qt ? 0.28f : 0, pw = 0.32f;
++            int count = (wx ? 1 : 0) + (qt ? 1 : 0) + 1;
++            float room = right - left - (count - 1) * 16 * k, sum = ww + qw + pw, x0 = left;
++            if (wx) { weatherCard.set(x0, cardsTop, x0 + room * ww / sum, cardsTop + CARDS_H * k); x0 = weatherCard.right + 16 * k; }
++            else weatherCard.setEmpty();
++            if (qt) { quotesCard.set(x0, cardsTop, x0 + room * qw / sum, cardsTop + CARDS_H * k); x0 = quotesCard.right + 16 * k; }
++            else quotesCard.setEmpty();
++            perfCard.set(x0, cardsTop, right, cardsTop + CARDS_H * k);
++        }
+         snap(weatherCard);
+         snap(quotesCard);
++        snap(perfCard);
+         // The symbols at their sizes at rest and focused: drawing them never scales one.
+         for (HomeApps.Item it : drawerItems) {
+             Symbols.warm(getContext(), it.symbol, 34 * k);
+@@ -1671,6 +1706,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (top >= 0) drawDrawerTile(c, top);
+         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
+         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
++        if (Prefs.performance()) drawPerformanceCard(c, perfCard);
+     }
+ 
+     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
+@@ -1729,14 +1765,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         c.drawText(nowTemp, x + sw + 18 * k - Ui.leftBearing(bigTemp, nowTemp), r.top + 170 * k, bigTemp);
+         c.drawText(HomeData.condition(wx.code, wx.isDay), x, r.top + 220 * k, cardText);
+         c.drawText(highLow, x, r.top + 258 * k, cardDim);
+-        float split = r.left + 392 * k;
++        // Three cards in the row: the weather card is narrower, so its left block shrinks and fewer hours or days fit.
++        float split = r.left + (r.width() < 900 * k ? 340 : 392) * k;
+         fill.setShader(null);
+         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
+         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
+         float hx = split + 30 * k;
+         if (textDays) {
+-            float hw = (r.right - 30 * k - hx) / 5;
+-            for (int i = 0; i < wx.days.size() && i < 5; i++) {
++            int shown = Math.max(1, Math.min(5, (int) ((r.right - 30 * k - hx) / (80 * k))));
++            float hw = (r.right - 30 * k - hx) / shown;
++            for (int i = 0; i < wx.days.size() && i < shown; i++) {
+                 float hc = hx + hw * (i + 0.5f);
+                 c.drawText(dayText[i], hc, r.top + 96 * k, hourPaint);
+                 Symbols.draw(getContext(), c, Symbols.weather(wx.dayCode.get(i), true), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
+@@ -1747,8 +1785,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 c.drawText(dayMinText[i], left + maxW + gap + minW / 2, r.top + 196 * k, dayLow);
+             }
+         } else {
+-            float hw = (r.right - 30 * k - hx) / 6;
+-            for (int i = 0; i < wx.hours.size() && i < 6; i++) {
++            int shown = Math.max(1, Math.min(6, (int) ((r.right - 30 * k - hx) / (80 * k))));
++            float hw = (r.right - 30 * k - hx) / shown;
++            for (int i = 0; i < wx.hours.size() && i < shown; i++) {
+                 float hc = hx + hw * (i + 0.5f);
+                 c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
+                 Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
+@@ -1873,6 +1912,111 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         }
+     }
+ 
++    // MARK: - Performance card
++
++    /** Once a second while the drawer is open: the frame rate since the last tick, and the numbers shown beside it. */
++    private void tickPerformance(long frameTimeNanos) {
++        if (!drawerOpen || !Prefs.performance()) {
++            fpsFrames = 0;
++            fpsSince = 0;
++            return;
++        }
++        if (fpsSince == 0) {
++            fpsSince = frameTimeNanos;
++            fpsFrames = 0;
++            return;
++        }
++        fpsFrames++;
++        long span = frameTimeNanos - fpsSince;
++        if (span < 1_000_000_000L) return;
++        fpsValue = Math.round(fpsFrames * 1e9f / span);
++        fpsFrames = 0;
++        fpsSince = frameTimeNanos;
++        readPerformance();
++        perfStamp++;
++        drawerDirty = true;
++    }
++
++    private void readPerformance() {
++        float hz = 60;
++        try {
++            hz = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
++        } catch (RuntimeException ignored) {
++            // keep 60
++        }
++        int max = Math.max(1, Math.round(hz));
++        perfRatio = Ui.clamp(fpsValue / (float) max);
++        perfMax = Ui.trf("{hz} is the screen's maximum", "hz", String.valueOf(max));
++        Debug.MemoryInfo mi = new Debug.MemoryInfo();
++        Debug.getMemoryInfo(mi);
++        perfMemory = String.format(Locale.getDefault(), "%.1f MB", mi.getTotalPss() / 1024.0);
++        int cores = Runtime.getRuntime().availableProcessors();
++        long total = 0;
++        ActivityManager am = (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
++        if (am != null) {
++            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
++            am.getMemoryInfo(info);
++            total = info.totalMem;
++        }
++        long gb = Math.max(1, Math.round(total / 1073741824.0));
++        perfHardware = Ui.trf("{n} cores · ~{gb} GB", "n", String.valueOf(cores), "gb", String.valueOf(gb));
++        // Everything the home screen is drawing: the shelf, the drawer's buttons and its cards.
++        int cards = (Prefs.weather() ? 1 : 0) + (Prefs.quotes() && HomeData.active().length > 0 ? 1 : 0) + 1;
++        perfItems = String.valueOf(shelf.size() + drawerItems.size() + cards);
++    }
++
++    private void drawPerformanceCard(Canvas c, RectF r) {
++        drawerCard(c, r);
++        if (Ui.LEGACY) perfSnapshot.draw(c, r, drawerCardsKey() + "|" + perfStamp, cc -> drawPerformance(cc, r));
++        else drawPerformance(c, r);
++    }
++
++    private final Snapshot perfSnapshot = new Snapshot();
++
++    private void drawPerformance(Canvas c, RectF r) {
++        if (perfMemory.isEmpty()) readPerformance();   // the first time, before the first second has passed
++        float x = r.left + 34 * k, right = r.right - 30 * k;
++        perfLabel.setColor(tone(L_DIM, 0xADFFFFFF));
++        perfUnit.setColor(tone(L_DIM, 0xADFFFFFF));
++        perfBig.setColor(drawerInk(1));
++        perfValue.setColor(drawerInk(0.95f));
++        c.drawText(Ui.tr("Performance"), x, r.top + 54 * k, cardTitle);
++        float split = r.left + 222 * k;
++        String fps = String.valueOf(fpsValue);
++        c.drawText(fps, x - Ui.leftBearing(perfBig, fps), r.top + 170 * k, perfBig);
++        c.drawText("FPS", x + perfBig.measureText(fps) + 10 * k, r.top + 170 * k, perfUnit);
++        c.drawText(Ui.tr("Frames per second"), x, r.top + 212 * k, perfLabel);
++        // The bar: how much of the screen's refresh rate the home screen reaches.
++        float barW = split - x - 22 * k, barTop = r.top + 232 * k, barH = 8 * k;
++        fill.setShader(null);
++        fill.setColor(tone(0x1A000000, 0x24FFFFFF));
++        tmp.set(x, barTop, x + barW, barTop + barH);
++        c.drawRoundRect(tmp, barH / 2, barH / 2, fill);
++        fill.setColor(tone(0xFF248A3D, UP_COLOR));
++        tmp.set(x, barTop, x + Math.max(barH, barW * perfRatio), barTop + barH);
++        c.drawRoundRect(tmp, barH / 2, barH / 2, fill);
++        c.drawText(perfMax, x, r.top + 268 * k, perfLabel);
++        // A line between the two halves, like the weather card's.
++        fill.setColor(tone(0x1A000000, 0x24FFFFFF));
++        c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
++        float lx = split + 24 * k;
++        perfValue.setTextAlign(Paint.Align.RIGHT);
++        // The TV's model, top right (long names are cut to fit).
++        String model = Build.MODEL == null ? "" : Build.MODEL;
++        cardDimRight.setColor(tone(L_FAINT, 0x99FFFFFF));
++        c.drawText(TextUtils.ellipsize(model, perfModelTp, right - lx, TextUtils.TruncateAt.END).toString(), right, r.top + 54 * k, cardDimRight);
++        perfRow(c, Ui.tr("App memory"), perfMemory, lx, right, r.top + 112 * k);
++        perfRow(c, Ui.tr("On-screen items"), perfItems, lx, right, r.top + 170 * k);
++        perfRow(c, Ui.tr("Hardware"), perfHardware, lx, right, r.top + 228 * k);
++    }
++
++    /** A label on the left and its value on the right (the label gives way if the two don't fit). */
++    private void perfRow(Canvas c, String label, String value, float left, float right, float base) {
++        float room = right - left - perfValue.measureText(value) - 12 * k;
++        c.drawText(TextUtils.ellipsize(label, perfLabelTp, Math.max(0, room), TextUtils.TruncateAt.END).toString(), left, base, perfLabel);
++        c.drawText(value, right, base, perfValue);
++    }
++
+     // MARK: - Focus
+ 
+     /** Sets the springs' targets from the current focus (snap: no animation). */
+diff --git a/app/src/io/freemytv/Prefs.java b/app/src/io/freemytv/Prefs.java
+index 2ff208c..0659d94 100644
+--- a/app/src/io/freemytv/Prefs.java
++++ b/app/src/io/freemytv/Prefs.java
+@@ -172,6 +172,9 @@ final class Prefs {
+ 
+     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
+     static void setQuotes(boolean on) { put("quotes", on); }
++    /** The drawer's performance card (frames per second, the app's memory, the TV's hardware). */
++    static boolean performance() { return sp().getBoolean("performance", true); }
++    static void setPerformance(boolean on) { put("performance", on); }
+ 
+     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
+     static boolean photos() { return sp().getBoolean("photos", true); }
+diff --git a/app/src/io/freemytv/SettingsActivity.java b/app/src/io/freemytv/SettingsActivity.java
+index 49d13d8..39e845b 100644
+--- a/app/src/io/freemytv/SettingsActivity.java
++++ b/app/src/io/freemytv/SettingsActivity.java
+@@ -706,9 +706,9 @@ public class SettingsActivity extends Activity {
+ 
+         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
+         /** Home Settings: language, temperature, theme, my photos, sounds, watch from the screensaver, weather, city, forecast,
+-         *  now playing, quotes, then one row per coin. */
++         *  now playing, quotes, performance, then one row per coin. */
+         private static final int PHOTOS_ROW = 3, SAVER_ROW = 5, WEATHER_ROW = 6, CITY_ROW = 7, FORECAST_ROW = 8, PLAYING_ROW = 9,
+-                QUOTES_ROW = 10, COIN_ROWS = 11;
++                QUOTES_ROW = 10, PERF_ROW = 11, COIN_ROWS = 12;
+         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
+         private static final int SETTINGS_VISIBLE = 10;
+ 
+@@ -729,6 +729,7 @@ public class SettingsActivity extends Activity {
+             l.add(Ui.tr("Forecast"));
+             l.add(Ui.tr("Now Playing widget"));
+             l.add(Ui.tr("Quotes widget"));
++            l.add(Ui.tr("Performance widget"));
+             l.add("Bitcoin");
+             l.add("Ethereum");
+             l.add("Solana");
+@@ -755,6 +756,7 @@ public class SettingsActivity extends Activity {
+             v[FORECAST_ROW] = Prefs.forecast().equals("days") ? Ui.tr("Next days") : Ui.tr("Next hours");
+             v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
+             v[QUOTES_ROW] = onOff(Prefs.quotes());
++            v[PERF_ROW] = onOff(Prefs.performance());
+             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
+             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+             return v;
+@@ -1033,6 +1035,7 @@ public class SettingsActivity extends Activity {
+                     HomeMode.nowPlayingAccess(getContext());
+                     break;
+                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
++                case PERF_ROW: Prefs.setPerformance(!Prefs.performance()); break;
+                 default:
+                     if (!Prefs.quotes()) return;
+                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));

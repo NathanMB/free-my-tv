@@ -2,6 +2,7 @@ package io.freemytv;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.LauncherApps;
@@ -16,6 +17,8 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.media.tv.TvInputManager;
+import android.os.Build;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -38,6 +41,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -210,7 +214,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int drawerInputs;          // how many leading items are inputs (the rest are shortcuts)
     private Spring[] drawerFocus = new Spring[0];
     private RectF[] drawerRects = new RectF[0];
-    private final RectF weatherCard = new RectF(), quotesCard = new RectF();
+    private final RectF weatherCard = new RectF(), quotesCard = new RectF(), perfCard = new RectF();
+    // Performance card: frames counted over one second while the drawer is open (the drawer redraws on every frame,
+    // so this is the rate the TV really reaches), and the numbers read at the same tick (once a second, not per frame).
+    private int fpsFrames, fpsValue, perfStamp;
+    private long fpsSince;
+    private String perfMemory = "", perfHardware = "", perfItems = "", perfMax = "";
+    private float perfRatio;
+    private Paint perfBig, perfUnit, perfLabel, perfValue;
+    private TextPaint perfLabelTp, perfModelTp;   // for measuring and cutting text, made once
     private final Spring drawer = new Spring(0.46f, 0.92f, 0);
     private boolean drawerOpen;
     private int drawerIndex;
@@ -669,6 +681,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         pricePaint.setTextAlign(Paint.Align.RIGHT);
         changePaint = Ui.numbers(Ui.semibold, 21 * k, 0xFFFFFFFF);
         changePaint.setTextAlign(Paint.Align.CENTER);
+        perfBig = Ui.numbers(Ui.light, 84 * k, 0xFFFFFFFF);
+        perfUnit = Ui.numbers(Ui.medium, 24 * k, 0xADFFFFFF);
+        perfLabel = Ui.text(Ui.medium, 20 * k, 0xADFFFFFF);
+        perfValue = Ui.numbers(Ui.medium, 22 * k, 0xF2FFFFFF);
+        perfValue.setTextAlign(Paint.Align.RIGHT);
+        perfLabelTp = new TextPaint(perfLabel);
+        perfModelTp = new TextPaint(cardDimRight);
         sheetTitle = Ui.text(Ui.displaySemibold, 40 * k, 0xFFFFFFFF);
         sheetTitle.setTextAlign(Paint.Align.CENTER);
         gridLabel = new TextPaint(Ui.text(Ui.medium, 24 * k, 0x99FFFFFF));
@@ -692,6 +711,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (frameTimeNanos - lastNanos) / 1e9f);
         lastNanos = frameTimeNanos;
         long up = SystemClock.uptimeMillis();
+        tickPerformance(frameTimeNanos);
 
         settleWhileSliding();
         boolean tilesMoving = step(tileFocus, dt);
@@ -1642,10 +1662,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
         // A card that is off gives its room to the other one.
-        weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
-        quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
+        boolean pf = Prefs.performance();
+        if (!pf) {
+            weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
+            quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
+            perfCard.setEmpty();
+        } else {
+            // Up to three cards share the row in these proportions (a card that is off gives its room to the others).
+            float ww = wx ? 0.40f : 0, qw = qt ? 0.28f : 0, pw = 0.32f;
+            int count = (wx ? 1 : 0) + (qt ? 1 : 0) + 1;
+            float room = right - left - (count - 1) * 16 * k, sum = ww + qw + pw, x0 = left;
+            if (wx) { weatherCard.set(x0, cardsTop, x0 + room * ww / sum, cardsTop + CARDS_H * k); x0 = weatherCard.right + 16 * k; }
+            else weatherCard.setEmpty();
+            if (qt) { quotesCard.set(x0, cardsTop, x0 + room * qw / sum, cardsTop + CARDS_H * k); x0 = quotesCard.right + 16 * k; }
+            else quotesCard.setEmpty();
+            perfCard.set(x0, cardsTop, right, cardsTop + CARDS_H * k);
+        }
         snap(weatherCard);
         snap(quotesCard);
+        snap(perfCard);
         // The symbols at their sizes at rest and focused: drawing them never scales one.
         for (HomeApps.Item it : drawerItems) {
             Symbols.warm(getContext(), it.symbol, 34 * k);
@@ -1719,6 +1754,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (top >= 0) drawDrawerTile(c, top);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+        if (Prefs.performance()) drawPerformanceCard(c, perfCard);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1777,14 +1813,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(nowTemp, x + sw + 18 * k - Ui.leftBearing(bigTemp, nowTemp), r.top + 170 * k, bigTemp);
         c.drawText(HomeData.condition(wx.code, wx.isDay), x, r.top + 220 * k, cardText);
         c.drawText(highLow, x, r.top + 258 * k, cardDim);
-        float split = r.left + 392 * k;
+        // Three cards in the row: the weather card is narrower, so its left block shrinks and fewer hours or days fit.
+        float split = r.left + (r.width() < 900 * k ? 340 : 392) * k;
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
         float hx = split + 30 * k;
         if (textDays) {
-            float hw = (r.right - 30 * k - hx) / 5;
-            for (int i = 0; i < wx.days.size() && i < 5; i++) {
+            int shown = Math.max(1, Math.min(5, (int) ((r.right - 30 * k - hx) / (80 * k))));
+            float hw = (r.right - 30 * k - hx) / shown;
+            for (int i = 0; i < wx.days.size() && i < shown; i++) {
                 float hc = hx + hw * (i + 0.5f);
                 c.drawText(dayText[i], hc, r.top + 96 * k, hourPaint);
                 Symbols.draw(getContext(), c, Symbols.weather(wx.dayCode.get(i), true), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
@@ -1795,8 +1833,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 c.drawText(dayMinText[i], left + maxW + gap + minW / 2, r.top + 196 * k, dayLow);
             }
         } else {
-            float hw = (r.right - 30 * k - hx) / 6;
-            for (int i = 0; i < wx.hours.size() && i < 6; i++) {
+            int shown = Math.max(1, Math.min(6, (int) ((r.right - 30 * k - hx) / (80 * k))));
+            float hw = (r.right - 30 * k - hx) / shown;
+            for (int i = 0; i < wx.hours.size() && i < shown; i++) {
                 float hc = hx + hw * (i + 0.5f);
                 c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
                 Symbols.draw(getContext(), c, Symbols.weather(wx.hourCode.get(i), wx.hourDay.get(i)), hc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
@@ -1919,6 +1958,111 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             changePaint.setColor(color);
             c.drawText(changeText[i], tmp.centerX(), mid + Ui.halfCap(changePaint), changePaint);
         }
+    }
+
+    // MARK: - Performance card
+
+    /** Once a second while the drawer is open: the frame rate since the last tick, and the numbers shown beside it. */
+    private void tickPerformance(long frameTimeNanos) {
+        if (!drawerOpen || !Prefs.performance()) {
+            fpsFrames = 0;
+            fpsSince = 0;
+            return;
+        }
+        if (fpsSince == 0) {
+            fpsSince = frameTimeNanos;
+            fpsFrames = 0;
+            return;
+        }
+        fpsFrames++;
+        long span = frameTimeNanos - fpsSince;
+        if (span < 1_000_000_000L) return;
+        fpsValue = Math.round(fpsFrames * 1e9f / span);
+        fpsFrames = 0;
+        fpsSince = frameTimeNanos;
+        readPerformance();
+        perfStamp++;
+        drawerDirty = true;
+    }
+
+    private void readPerformance() {
+        float hz = 60;
+        try {
+            hz = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
+        } catch (RuntimeException ignored) {
+            // keep 60
+        }
+        int max = Math.max(1, Math.round(hz));
+        perfRatio = Ui.clamp(fpsValue / (float) max);
+        perfMax = Ui.trf("{hz} is the screen's maximum", "hz", String.valueOf(max));
+        Debug.MemoryInfo mi = new Debug.MemoryInfo();
+        Debug.getMemoryInfo(mi);
+        perfMemory = String.format(Locale.getDefault(), "%.1f MB", mi.getTotalPss() / 1024.0);
+        int cores = Runtime.getRuntime().availableProcessors();
+        long total = 0;
+        ActivityManager am = (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(info);
+            total = info.totalMem;
+        }
+        long gb = Math.max(1, Math.round(total / 1073741824.0));
+        perfHardware = Ui.trf("{n} cores · ~{gb} GB", "n", String.valueOf(cores), "gb", String.valueOf(gb));
+        // Everything the home screen is drawing: the shelf, the drawer's buttons and its cards.
+        int cards = (Prefs.weather() ? 1 : 0) + (Prefs.quotes() && HomeData.active().length > 0 ? 1 : 0) + 1;
+        perfItems = String.valueOf(shelf.size() + drawerItems.size() + cards);
+    }
+
+    private void drawPerformanceCard(Canvas c, RectF r) {
+        drawerCard(c, r);
+        if (Ui.LEGACY) perfSnapshot.draw(c, r, drawerCardsKey() + "|" + perfStamp, cc -> drawPerformance(cc, r));
+        else drawPerformance(c, r);
+    }
+
+    private final Snapshot perfSnapshot = new Snapshot();
+
+    private void drawPerformance(Canvas c, RectF r) {
+        if (perfMemory.isEmpty()) readPerformance();   // the first time, before the first second has passed
+        float x = r.left + 34 * k, right = r.right - 30 * k;
+        perfLabel.setColor(tone(L_DIM, 0xADFFFFFF));
+        perfUnit.setColor(tone(L_DIM, 0xADFFFFFF));
+        perfBig.setColor(drawerInk(1));
+        perfValue.setColor(drawerInk(0.95f));
+        c.drawText(Ui.tr("Performance"), x, r.top + 54 * k, cardTitle);
+        float split = r.left + 222 * k;
+        String fps = String.valueOf(fpsValue);
+        c.drawText(fps, x - Ui.leftBearing(perfBig, fps), r.top + 170 * k, perfBig);
+        c.drawText("FPS", x + perfBig.measureText(fps) + 10 * k, r.top + 170 * k, perfUnit);
+        c.drawText(Ui.tr("Frames per second"), x, r.top + 212 * k, perfLabel);
+        // The bar: how much of the screen's refresh rate the home screen reaches.
+        float barW = split - x - 22 * k, barTop = r.top + 232 * k, barH = 8 * k;
+        fill.setShader(null);
+        fill.setColor(tone(0x1A000000, 0x24FFFFFF));
+        tmp.set(x, barTop, x + barW, barTop + barH);
+        c.drawRoundRect(tmp, barH / 2, barH / 2, fill);
+        fill.setColor(tone(0xFF248A3D, UP_COLOR));
+        tmp.set(x, barTop, x + Math.max(barH, barW * perfRatio), barTop + barH);
+        c.drawRoundRect(tmp, barH / 2, barH / 2, fill);
+        c.drawText(perfMax, x, r.top + 268 * k, perfLabel);
+        // A line between the two halves, like the weather card's.
+        fill.setColor(tone(0x1A000000, 0x24FFFFFF));
+        c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
+        float lx = split + 24 * k;
+        perfValue.setTextAlign(Paint.Align.RIGHT);
+        // The TV's model, top right (long names are cut to fit).
+        String model = Build.MODEL == null ? "" : Build.MODEL;
+        cardDimRight.setColor(tone(L_FAINT, 0x99FFFFFF));
+        c.drawText(TextUtils.ellipsize(model, perfModelTp, right - lx, TextUtils.TruncateAt.END).toString(), right, r.top + 54 * k, cardDimRight);
+        perfRow(c, Ui.tr("App memory"), perfMemory, lx, right, r.top + 112 * k);
+        perfRow(c, Ui.tr("On-screen items"), perfItems, lx, right, r.top + 170 * k);
+        perfRow(c, Ui.tr("Hardware"), perfHardware, lx, right, r.top + 228 * k);
+    }
+
+    /** A label on the left and its value on the right (the label gives way if the two don't fit). */
+    private void perfRow(Canvas c, String label, String value, float left, float right, float base) {
+        float room = right - left - perfValue.measureText(value) - 12 * k;
+        c.drawText(TextUtils.ellipsize(label, perfLabelTp, Math.max(0, room), TextUtils.TruncateAt.END).toString(), left, base, perfLabel);
+        c.drawText(value, right, base, perfValue);
     }
 
     // MARK: - Focus
