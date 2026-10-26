@@ -106,6 +106,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static int tabsGeneration = -1;
     private static final String[] TAB_KIND = {null, "movie", "tv"};
     private static final int Z_TOP = 4, Z_CARDS = 5;
+    /** true brings back the row of coin prices at the right end of the tab bar (and under the clock). */
+    private static final boolean COINS_IN_TOP_ROW = false;
 
     private final Activity activity;
     private final Scene scene = new Scene();
@@ -1415,6 +1417,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             text.setColor(textColor);
             return;
         }
+        // The prices live in the drawer's Quotes card only: no row of coins beside the tabs or under the clock.
+        if (!COINS_IN_TOP_ROW) { text.setColor(textColor); return; }
         // One read of the list, so n always matches the coins drawn below.
         int[] coins = HomeData.active();
         int n = coins.length;
@@ -3195,7 +3199,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
-            if (HomeData.coinCount() > 0 || playingTab != null) drawQuotes(c);
+            if (playingTab != null) drawQuotes(c);
             return;
         }
         String hello = Ui.tr("For You");
@@ -3228,7 +3232,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
-        if (HomeData.coinCount() > 0 || playingTab != null) drawQuotes(c);
+        if (playingTab != null) drawQuotes(c);
     }
 
     private boolean picksOn() {

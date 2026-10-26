@@ -457,9 +457,8 @@ final class Recs {
         if (services.isEmpty()) throw new IOException(NO_APPS);
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
-                + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
+        String base = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
+                + "&sort_by=popularity.desc" + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -478,13 +477,26 @@ final class Recs {
         }
         // 2. Recent releases on the TV's services: movies from the past year and shows with a new episode in the
         //    past 3 months.
-        JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
-                + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
-        JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
-                + common).getJSONArray("results");
-        List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
-        for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
-        for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
+        // One query per service, then the services take turns: asked all at once and by popularity, the biggest
+        // service (Prime Video) filled the list and a smaller one (Crunchyroll) never made it in.
+        List<List<Pick>> movieSets = new ArrayList<>(), showSets = new ArrayList<>();
+        for (int id : services.keySet()) {
+            String common = base + "&with_watch_providers=" + id;
+            try {
+                JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
+                        + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
+                JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
+                        + common).getJSONArray("results");
+                List<Pick> m = new ArrayList<>(), t = new ArrayList<>();
+                for (int i = 0; i < movies.length() && m.size() < 8; i++) add(m, movies.getJSONObject(i), "movie");
+                for (int i = 0; i < shows.length() && t.size() < 8; i++) add(t, shows.getJSONObject(i), "tv");
+                movieSets.add(m);
+                showSets.add(t);
+            } catch (Exception e) {
+                continue;   // one service failing doesn't take the others' picks away
+            }
+        }
+        List<Pick> newMovies = turns(movieSets), newShows = turns(showSets);
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
@@ -506,6 +518,21 @@ final class Recs {
         if (lang.equals("de")) return "de-DE";   // TMDB's de-AT and de-CH have few translations of their own
         if (lang.indexOf('-') > 0) return lang;
         return lang + "-" + Ui.locale().getCountry();
+    }
+
+    /** The lists' titles taking turns: the first of each, then the second of each... */
+    private static List<Pick> turns(List<List<Pick>> sets) {
+        List<Pick> out = new ArrayList<>();
+        for (int i = 0; ; i++) {
+            boolean any = false;
+            for (List<Pick> set : sets) {
+                if (i < set.size()) {
+                    out.add(set.get(i));
+                    any = true;
+                }
+            }
+            if (!any) return out;
+        }
     }
 
     private static void alternate(List<Pick> out, java.util.Set<String> seen, List<Pick> a, List<Pick> b, int max) {
